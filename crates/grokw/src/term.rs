@@ -157,7 +157,7 @@ static HOOKS: Once = Once::new();
 pub fn startup_bytes(cursor_rgb: (u8, u8, u8), mode: ScreenMode) -> Vec<u8> {
     let (r, g, b) = cursor_rgb;
     let mut v = Vec::new();
-    v.extend_from_slice(b"\x1b]0;grok\x07");
+    v.extend_from_slice(b"\x1b]0;wizard\x07");
     if mode == ScreenMode::Fullscreen {
         v.extend_from_slice(b"\x1b[?1049h");
     }
@@ -178,7 +178,7 @@ pub fn startup_bytes(cursor_rgb: (u8, u8, u8), mode: ScreenMode) -> Vec<u8> {
 /// goes under the last live row and a newline leaves the frame in the scrollback.
 pub fn teardown_bytes(kitty: bool, mode: ScreenMode, bottom: u16) -> Vec<u8> {
     let mut v = Vec::new();
-    v.extend_from_slice(b"\x1b]0;grok\x07");
+    v.extend_from_slice(b"\x1b]0;wizard\x07");
     if mode == ScreenMode::Fullscreen {
         v.extend_from_slice(b"\x1b[2J");
     }
@@ -628,7 +628,7 @@ mod tests {
     fn startup_stream_is_grok_s_order() {
         assert_eq!(
             s(startup_bytes((0xc8, 0xc8, 0xc8), ScreenMode::Fullscreen)),
-            "ESC]0;grokBELESC[?1049hESC[?1000hESC[?1002hESC[?1003hESC[?1015hESC[?1006h\
+            "ESC]0;wizardBELESC[?1049hESC[?1000hESC[?1002hESC[?1003hESC[?1015hESC[?1006h\
              ESC[?1004hESC[?2004hESC[?25lESC]12;rgb:c8/c8/c8BEL"
         );
     }
@@ -697,7 +697,7 @@ mod tests {
         assert!(!inline.contains("?1049h") && inline.contains("?1000hESC[?1002h"));
         let minimal = s(startup_bytes((0xc8, 0xc8, 0xc8), ScreenMode::Minimal));
         assert_eq!(
-            minimal, "ESC]0;grokBELESC[?1004hESC[?2004hESC[?25l",
+            minimal, "ESC]0;wizardBELESC[?1004hESC[?2004hESC[?25l",
             "no alt screen, no mouse, no cursor colour"
         );
     }
@@ -730,7 +730,7 @@ mod tests {
     fn teardown_stream_is_grok_s_order() {
         assert_eq!(
             s(teardown_bytes(false, ScreenMode::Fullscreen, 0)),
-            "ESC]0;grokBELESC[2JESC]9;4;0;0BELESC[?2026lESC]112BELESC[?1000lESC[?1002l\
+            "ESC]0;wizardBELESC[2JESC]9;4;0;0BELESC[?2026lESC]112BELESC[?1000lESC[?1002l\
              ESC[?1003lESC[?1015lESC[?1006lESC[?2004lESC[?1004lESC[?25hESC[?1049l"
         );
         assert!(s(teardown_bytes(true, ScreenMode::Fullscreen, 0)).contains("ESC[<1uESC[?25h"));

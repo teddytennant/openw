@@ -43,7 +43,7 @@ const BUILTINS: &[(&str, &str, &str)] = &[
         "Import and resume a session from a JSONL file",
     ),
     ("share", "", "Share session as a secret GitHub gist"),
-    ("bug", "<description>", "Report a bug to the Pi developers"),
+    ("bug", "<description>", "Report a bug to the Wizard developers"),
     ("copy", "", "Copy last agent message to clipboard"),
     ("name", "", "Set session display name"),
     ("session", "", "Show session info and stats"),
@@ -70,7 +70,7 @@ const BUILTINS: &[(&str, &str, &str)] = &[
         "",
         "Reload keybindings, extensions, skills, prompts, themes, and context files",
     ),
-    ("quit", "", "Quit pi"),
+    ("quit", "", "Quit wizard"),
 ];
 
 /// The menu: Pi's built-ins, then wizard's own commands that do not share a name with one.

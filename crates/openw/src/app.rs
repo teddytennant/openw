@@ -976,6 +976,12 @@ impl App {
                 self.scroll.to_bottom();
                 self.title_dirty = true;
             }
+            Event::Notice { text, .. }
+                if agent_core::switched_look(text).is_some_and(|l| l != "opencode") =>
+            {
+                // `/ui <look>`: wizard saved it; leaving hands the terminal to that look
+                self.quit = true;
+            }
             Event::Notice { level, text } => match level {
                 NoticeLevel::Info => {
                     if text.to_lowercase().contains("nothing to compact") {

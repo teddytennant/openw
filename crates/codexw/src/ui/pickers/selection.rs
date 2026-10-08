@@ -1193,25 +1193,25 @@ mod tests {
     #[test]
     fn spacing_with_subtitle_snapshot() {
         plain_palette();
-        let mut ro = item("Read Only", "Codex can read files");
+        let mut ro = item("Read Only", "Wizard can read files");
         ro.is_current = true;
         let v = ListSelectionView::new(SelectionParams {
             title: Some("Select Approval Mode".into()),
-            subtitle: Some("Switch between Codex approval presets".into()),
-            items: vec![ro, item("Full Access", "Codex can edit files")],
+            subtitle: Some("Switch between Wizard approval presets".into()),
+            items: vec![ro, item("Full Access", "Wizard can edit files")],
             ..Default::default()
         });
         let want = [
             "",
             "  Select Approval Mode",
-            "  Switch between Codex approval presets",
+            "  Switch between Wizard approval presets",
             "",
-            "› 1. Read Only (current)  Codex can read files",
-            "  2. Full Access          Codex can edit files",
+            "› 1. Read Only (current)  Wizard can read files",
+            "  2. Full Access          Wizard can edit files",
             "",
             "  Press enter to confirm or esc to go back",
         ];
-        assert_eq!(render_to_rows(&v, 48), want);
+        assert_eq!(render_to_rows(&v, 50), want);
     }
 
     #[test]
@@ -1240,12 +1240,12 @@ mod tests {
         plain_palette();
         let mut a = item(
             "gpt-5.1-codex",
-            "Optimized for Codex. Balance of reasoning quality and coding ability.",
+            "Optimized for Wizard. Balance of reasoning quality and coding ability.",
         );
         a.is_current = true;
         let b = item(
             "gpt-5.1-codex-mini",
-            "Optimized for Codex. Cheaper, faster, but less capable.",
+            "Optimized for Wizard. Cheaper, faster, but less capable.",
         );
         let v = ListSelectionView::new(SelectionParams {
             title: Some("Select Model and Effort".into()),
@@ -1257,9 +1257,9 @@ mod tests {
             "",
             "  Select Model and Effort",
             "",
-            "› 1. gpt-5.1-codex (current)  Optimized for Codex. Balance of reasoning",
+            "› 1. gpt-5.1-codex (current)  Optimized for Wizard. Balance of reasoning",
             "                              quality and coding ability.",
-            "  2. gpt-5.1-codex-mini       Optimized for Codex. Cheaper, faster, but less",
+            "  2. gpt-5.1-codex-mini       Optimized for Wizard. Cheaper, faster, but less",
             "                              capable.",
             "",
             "  Press enter to confirm or esc to go back",
@@ -1270,7 +1270,7 @@ mod tests {
     #[test]
     fn footer_note_wraps_at_width_40() {
         plain_palette();
-        let mut ro = item("Read Only", "Codex can read files");
+        let mut ro = item("Read Only", "Wizard can read files");
         ro.is_current = true;
         let v = ListSelectionView::new(SelectionParams {
             title: Some("Select Approval Mode".into()),
@@ -1284,7 +1284,7 @@ mod tests {
             "",
             "  Select Approval Mode",
             "",
-            "› 1. Read Only (current)  Codex can",
+            "› 1. Read Only (current)  Wizard can",
             "                          read files",
             "",
             "  Note: Use /setup-default-sandbox to",

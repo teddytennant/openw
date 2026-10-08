@@ -102,7 +102,7 @@ pub fn instructions(p: &Provider) -> Box<dyn Dialog> {
     Box::new(Alert::new(
         format!("Connect {}", p.title),
         format!(
-            "Run this in a terminal: {}\n{}\nThen restart openw so it picks up the new credentials.",
+            "Run this in a terminal: {}\n{}\nThen restart wizard so it picks up the new credentials.",
             p.command, p.how
         ),
     ))

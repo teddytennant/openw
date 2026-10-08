@@ -76,7 +76,7 @@ impl HistoryCell for SessionHeaderCell {
             format!(" {}", self.effort)
         };
         let mut lines = vec![
-            Line::from(format!("OpenAI Codex (v{})", self.version)),
+            Line::from(format!("Wizard (v{})", self.version)),
             Line::from(format!("model: {model}{effort}")),
             Line::from(format!("directory: {}", self.directory)),
         ];
@@ -97,7 +97,7 @@ impl HistoryCell for SessionHeaderCell {
 
         let title = Line::from(vec![
             Span::from(">_ ").dim(),
-            Span::from("OpenAI Codex").bold(),
+            Span::from("Wizard").bold(),
             Span::from(" ").dim(),
             Span::from(format!("(v{})", self.version)).dim(),
         ]);
@@ -293,7 +293,7 @@ mod tests {
         let c = SessionHeaderCell::new(Some("gpt-5.5".into()), "", "~/proj");
         let t = text(&c.display_lines(120));
         assert_eq!(t[0], "╭───────────────────────────────────────╮");
-        assert_eq!(t[1], "│ >_ OpenAI Codex (v0.147.0)            │");
+        assert_eq!(t[1], "│ >_ Wizard (v0.147.0)                  │");
         assert_eq!(t[3], "│ model:     gpt-5.5   /model to change │");
         assert_eq!(t[4], "│ directory: ~/proj                     │");
         assert_eq!(t.len(), 6);
@@ -309,7 +309,7 @@ mod tests {
             t,
             vec![
                 "╭───────────────────────────────────────╮",
-                "│ >_ OpenAI Codex (vtest)               │",
+                "│ >_ Wizard (vtest)                     │",
                 "│                                       │",
                 "│ model:       gpt-5   /model to change │",
                 "│ directory:   /tmp/project             │",

@@ -3,34 +3,29 @@
 //! line per instruction. There is no loaded-resources listing (wizard reports no context, skills or
 //! prompts over ACP), so the compact text is `quietStartup: "header"`'s. Spec 4.1, 4.2, 14.3.
 
-use ratatui::style::Style;
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use tuikit::width::{wrap_spans, WrapMode};
 
 use super::{blank, indent, span, Cx, Lines};
 use crate::keys::{Action, Keymap};
-use crate::theme::{Tok, LOGO_BLUE, LOGO_CORAL, LOGO_YELLOW};
+use crate::theme::{Tok, LOGO_CORAL};
 
 pub const TAGLINE: &str =
-    "Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.";
+    "Wizard can explain its own features and look up its docs. Ask it how to use or extend Wizard.";
 
 fn logo1(version: &str, cx: &Cx) -> Vec<Span<'static>> {
-    let coral = Style::default().fg(LOGO_CORAL);
+    let coral = Style::default().fg(LOGO_CORAL).add_modifier(Modifier::BOLD);
     vec![
-        span("▀", coral.bg(LOGO_BLUE)),
-        span("▀█", coral),
+        span("wizard", coral),
         span("  ", Style::default()),
         span(format!("v{version}"), cx.th().fg(Tok::Dim)),
     ]
 }
 
+/// What leads the hint line under the name: nothing, the name sits on the row above.
 fn logo2() -> Vec<Span<'static>> {
-    vec![
-        span("█▀", Style::default().fg(LOGO_BLUE)),
-        span(" ", Style::default()),
-        span("█", Style::default().fg(LOGO_YELLOW)),
-        span(" ", Style::default()),
-    ]
+    Vec::new()
 }
 
 /// `key` in `dim`, ` description` in `muted`.
@@ -155,10 +150,10 @@ mod tests {
             .map(text)
             .collect();
         assert_eq!(rows[0], "");
-        assert_eq!(rows[1], " ▀▀█  v1.0.3");
+        assert_eq!(rows[1], " wizard  v1.0.3");
         assert_eq!(
             rows[2],
-            " █▀ █ escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o more"
+            " escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o more"
         );
         assert_eq!(rows[3], " Press ctrl+o to show full startup help.");
         assert_eq!(rows[4], "");
@@ -166,8 +161,8 @@ mod tests {
     }
 
     #[test]
-    fn hints_wrap_after_bash_at_80() {
-        let rows: Vec<String> = render(&cx(80, false), &Keymap::new())
+    fn hints_wrap_after_bash_at_72() {
+        let rows: Vec<String> = render(&cx(72, false), &Keymap::new())
             .iter()
             .map(text)
             .collect();

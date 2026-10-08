@@ -358,6 +358,13 @@ impl<W: Write> App<W> {
             flow.answer = Some(text.clone());
             return;
         }
+        if let Event::Notice { text, .. } = &ev {
+            if agent_core::switched_look(text).is_some_and(|l| l != "codex") {
+                // `/ui <look>`: wizard saved it; leaving hands the terminal to that look
+                self.should_exit = true;
+                return;
+            }
+        }
         match &ev {
             Event::Ready { session_id, config } => {
                 self.session_id = session_id.clone();
@@ -610,7 +617,7 @@ impl<W: Write> App<W> {
         match result {
             Ok(text) => self.pane.composer.apply_external_edit(&text),
             Err(EditorError::Missing) => self.push_cell(Box::new(ErrorCell {
-                text: "Cannot open external editor: set $VISUAL or $EDITOR before starting Codex."
+                text: "Cannot open external editor: set $VISUAL or $EDITOR before starting Wizard."
                     .into(),
             })),
             Err(e) => self.push_cell(Box::new(ErrorCell {

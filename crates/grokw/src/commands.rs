@@ -44,7 +44,7 @@ pub const TABLE: &[Cmd] = &[
     c(
         "tutorial",
         &["tour", "onboarding"],
-        "Quick tips to get the most out of Grok Build",
+        "Quick tips to get the most out of Wizard",
         "",
     ),
     c(
@@ -1109,7 +1109,7 @@ fn transcript_markdown(app: &App) -> String {
         }
         match m.role {
             Role::User => out.push_str(&format!("## You\n\n{text}\n\n")),
-            Role::Assistant => out.push_str(&format!("## Grok\n\n{text}\n\n")),
+            Role::Assistant => out.push_str(&format!("## Wizard\n\n{text}\n\n")),
             Role::Notice(_) => {}
         }
     }

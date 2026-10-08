@@ -71,7 +71,7 @@ pub const COMMANDS: &[CommandSpec] = &[
     ),
     c(
         "permissions",
-        "choose what Codex is allowed to do",
+        "choose what Wizard is allowed to do",
         No(
             "'/permissions' is not supported by wizard. It runs tools without asking in genie and sovereign mode and has no sandbox. Use the Mode setting: chat mode has no file or shell tools.",
         ),
@@ -99,7 +99,7 @@ pub const COMMANDS: &[CommandSpec] = &[
     ),
     c(
         "skills",
-        "use skills to improve how Codex performs specific tasks",
+        "use skills to improve how Wizard performs specific tasks",
         Client,
         true,
     ),
@@ -159,7 +159,7 @@ pub const COMMANDS: &[CommandSpec] = &[
     ),
     c(
         "init",
-        "create an AGENTS.md file with instructions for Codex",
+        "create an AGENTS.md file with instructions for Wizard",
         Client,
         false,
     ),
@@ -243,13 +243,13 @@ pub const COMMANDS: &[CommandSpec] = &[
     ),
     c(
         "logout",
-        "log out of Codex",
+        "log out of Wizard",
         No(
             "'/logout' is not supported by wizard. Sign in with `wizard --login xai` or `wizard --login chatgpt`. To sign out of xAI, delete ~/.wizard/xai_oauth.json.",
         ),
         false,
     ),
-    c("exit", "exit Codex", Client, true),
+    c("exit", "exit Wizard", Client, true),
     c(
         "feedback",
         "send logs to maintainers",
@@ -275,7 +275,7 @@ pub const COMMANDS: &[CommandSpec] = &[
     ),
     c(
         "personality",
-        "choose a communication style for Codex",
+        "choose a communication style for Wizard",
         No(
             "'/personality' is not supported by wizard. Its modes (genie, sovereign, chat) change how autonomous it is, not its tone.",
         ),
@@ -287,7 +287,7 @@ pub const COMMANDS: &[CommandSpec] = &[
 /// Commands that exist but are not listed in the popup unless typed.
 pub const HIDDEN: &[(&str, &str)] = &[
     ("rewind", "go back to before an earlier message"),
-    ("quit", "exit Codex"),
+    ("quit", "exit Wizard"),
     ("btw", "start a side conversation in an ephemeral fork"),
     ("clean", "stop all background terminals"),
     ("usage", "view account usage or use a usage limit reset"),
@@ -316,6 +316,12 @@ pub const HIDDEN_SPECS: &[CommandSpec] = &[
         "show config layers and requirement sources for debugging",
         Client,
         true,
+    ),
+    c(
+        "ui",
+        "list the wizard looks, or switch to one: /ui <name>",
+        Backed,
+        false,
     ),
 ];
 
@@ -398,6 +404,11 @@ impl<W: Write> App<W> {
             "hooks" => self.hooks_command(),
             "debug-config" => self.debug_config_command(),
             "usage" => self.wizard_command("/usage".into()),
+            "ui" => self.wizard_command(if rest.is_empty() {
+                "/ui".into()
+            } else {
+                format!("/ui {rest}")
+            }),
             "memories" => {
                 let cmd = if rest.is_empty() {
                     "/memory".to_string()

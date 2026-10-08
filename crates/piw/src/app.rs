@@ -1074,6 +1074,11 @@ impl App {
 
     fn on_notice(&mut self, level: NoticeLevel, text: &str) {
         let text = text.trim_end();
+        if agent_core::switched_look(text).is_some_and(|l| l != "pi") {
+            // `/ui <look>`: wizard saved it; leaving hands the terminal to that look
+            self.quit = true;
+            return;
+        }
         // a refusal (`Finish or cancel the running turn before switching sessions.`, a session
         // that would not load) means no switch is coming: a later reload must not announce one
         if level != NoticeLevel::Info {

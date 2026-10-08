@@ -354,8 +354,8 @@ fn footer_lines(app: &App, w: usize, copy: &Copy) -> Vec<Line<'static>> {
     out.push(Line::from(vec![
         span("•", t.success, false),
         Span::raw(" "),
-        span("open", t.text_muted, true),
-        span("w", t.text, true),
+        span("wiz", t.text_muted, true),
+        span("ard", t.text, true),
         Span::raw(" "),
         span(app.version, t.text_muted, false),
     ]));

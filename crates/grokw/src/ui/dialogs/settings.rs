@@ -381,8 +381,8 @@ fn footer(s: &Settings) -> Vec<Hint<'static>> {
 
 fn tip(width: u16) -> &'static str {
     const LONG: &str =
-        "Tip · Ask Grok: \"change theme to grokday\" or \"what does compact mode do?\"";
-    const SHORT: &str = "Tip · Ask Grok to change a setting";
+        "Tip · Ask Wizard: \"change theme to grokday\" or \"what does compact mode do?\"";
+    const SHORT: &str = "Tip · Ask Wizard to change a setting";
     if display_width(LONG) + 6 <= width as usize {
         LONG
     } else {

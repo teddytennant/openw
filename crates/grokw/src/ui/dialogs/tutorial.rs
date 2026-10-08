@@ -104,7 +104,7 @@ pub fn draw(buf: &mut Buffer, app: &App, lay: &Layout, t: &Tutorial) {
         return;
     }
     let r = rect(lay);
-    let inner = modal_frame(buf, app, r, "Welcome to Grok Build");
+    let inner = modal_frame(buf, app, r, "Welcome to Wizard");
     if inner.height < 8 {
         return;
     }
@@ -117,7 +117,7 @@ pub fn draw(buf: &mut Buffer, app: &App, lay: &Layout, t: &Tutorial) {
         buf,
         x0,
         r.y + 2,
-        "Quick tips to get the most out of Grok Build.",
+        "Quick tips to get the most out of Wizard.",
         st(th.gray_bright),
         intro,
     );

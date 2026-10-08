@@ -420,7 +420,7 @@ fn exec_approval_replaces_the_composer_and_y_approves() {
     assert!(text.contains(
         "2. Yes, and don't ask again for commands that start with `touch approved.txt` (p)"
     ));
-    assert!(text.contains("3. No, and tell Codex what to do differently (esc)"));
+    assert!(text.contains("3. No, and tell Wizard what to do differently (esc)"));
     assert!(text.contains("  Press enter to confirm or esc to cancel"));
     assert!(
         !text.contains("Improve documentation"),

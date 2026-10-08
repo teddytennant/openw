@@ -272,10 +272,10 @@ pub fn draw(buf: &mut Buffer, app: &App, lay: &Layout, d: &Docs) {
     widgets::draw_divider(buf, app, r, b.div_y, 0);
     if let Some(t) = b.tip_y {
         let long = format!(
-            "Tip · Ask Grok about the docs ({}), e.g. \"how do I set up MCP?\"",
+            "Tip · Ask Wizard about the docs ({}), e.g. \"how do I set up MCP?\"",
             dir_label()
         );
-        let short = format!("Tip · Ask Grok about the docs · {}", dir_label());
+        let short = format!("Tip · Ask Wizard about the docs · {}", dir_label());
         let text = if display_width(&long) + 6 <= r.width as usize {
             long
         } else {

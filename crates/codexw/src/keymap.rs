@@ -536,7 +536,7 @@ pub const BINDINGS: &[Binding] = &[
         Approval,
         "decline",
         &["esc", "n"],
-        "Decline and tell Codex what to do differently.",
+        "Decline and tell Wizard what to do differently.",
     ),
     b(Approval, "cancel", &["c"], "Cancel the request."),
 ];

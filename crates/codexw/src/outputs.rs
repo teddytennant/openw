@@ -138,7 +138,7 @@ pub const HOOK_EVENTS: [(&str, &str, &str); 11] = [
         "subagent_stop",
         "Right before a subagent ends its turn",
     ),
-    ("Stop", "stop", "Right before Codex ends its turn"),
+    ("Stop", "stop", "Right before Wizard ends its turn"),
 ];
 
 /// Hooks from `~/.wizard/hooks.toml` and, in the project, `.wizard/hooks.toml`. The project file
@@ -321,7 +321,7 @@ mod tests {
         );
         assert_eq!(
             rows[14],
-            "  Stop                  1           1           Right before Codex ends its turn"
+            "  Stop                  1           1           Right before Wizard ends its turn"
         );
         assert_eq!(rows.len(), 15);
     }

@@ -215,6 +215,15 @@ pub struct Config {
     pub backend: String,
 }
 
+/// The look a `/ui <name>` notice from `wizard acp` says it saved, if `text` is that notice
+/// (`saved [ui] skin = "grok". ...`). A look quits when this names a look other than itself:
+/// the `wizard` that started it reads `[ui] skin` on the way out and starts the new one.
+pub fn switched_look(text: &str) -> Option<&str> {
+    let rest = text.trim_start().strip_prefix("saved [ui] skin = \"")?;
+    let (name, _) = rest.split_once('"')?;
+    (!name.is_empty()).then_some(name)
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum Event {
     /// Backend is up; `session_id` is the active session.
@@ -387,5 +396,22 @@ mod tests {
         let r = tokio::time::timeout(std::time::Duration::from_millis(200), rx.recv()).await;
         // the sender inside the supervisor is dropped when it finishes: closed, not a Fatal
         assert!(matches!(r, Ok(None) | Err(_)), "{r:?}");
+    }
+}
+
+#[cfg(test)]
+mod switched_look_tests {
+    use super::switched_look;
+
+    #[test]
+    fn reads_the_look_from_the_saved_notice() {
+        let n = "saved [ui] skin = \"grok\". Quit this look to switch now.";
+        assert_eq!(switched_look(n), Some("grok"));
+    }
+
+    #[test]
+    fn other_notices_are_not_a_switch() {
+        assert_eq!(switched_look("ui: codex (current)"), None);
+        assert_eq!(switched_look("saved [ui] skin = \"\"."), None);
     }
 }

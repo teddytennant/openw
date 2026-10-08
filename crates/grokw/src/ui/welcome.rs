@@ -32,8 +32,8 @@ pub const LOGO05: [&str; 5] = [
 
 /// grokw's own announcement; Grok's comes from a server.
 pub const ANNOUNCEMENT: (&str, &str) = (
-    "grokw runs on wizard.",
-    "Models, sessions and tools come from wizard acp; commands wizard cannot back say so.",
+    "Welcome to wizard.",
+    "This is its grok look. Type /ui to see the others or to switch back to the wizard look.",
 );
 /// The announcement of this launch: the override a test sets, else grokw's own.
 pub fn announcement(app: &App) -> (String, String) {
@@ -117,7 +117,7 @@ fn warning_rows(list: &[StartupWarning]) -> u16 {
     })
 }
 
-pub const SUBTITLE: &str = "Thanks for trying Grok Build, give feedback with /feedback!";
+pub const SUBTITLE: &str = "Thanks for trying Wizard, give feedback with /feedback!";
 pub const MENU: [(&str, &str); 4] = [
     ("New worktree", "ctrl+w"),
     ("Resume session", "ctrl+r"),
@@ -135,7 +135,7 @@ const TIPS: [&str; 10] = [
     "Run /compact [context] when chat gets long.",
     "Use @ to attach files like @src/main.rs.",
     "Run /dashboard (or Ctrl+\\) to see and manage all your agents in one place.",
-    "Start Grok in a fresh worktree with `-w`; add `-r <session-id>` to resume an existing session there.",
+    "Start Wizard in a fresh worktree with `-w`; add `-r <session-id>` to resume an existing session there.",
 ];
 
 /// The tip for this launch: `tips[cursor % len]`, then the cursor moves on.
@@ -367,7 +367,7 @@ pub fn draw(buf: &mut Buffer, app: &mut App, lay: &Layout) {
     }
     // version line and subtitle (card only)
     if let Some((x, y)) = hl.version_hdr {
-        let nx = put(buf, x, y, "Grok Build  ", bold(th.text_primary));
+        let nx = put(buf, x, y, "Wizard  ", bold(th.text_primary));
         put(buf, nx, y, GROK_VERSION, st(th.gray));
     }
     if let Some(y) = hl.subtitle_y {
@@ -434,7 +434,7 @@ pub fn draw(buf: &mut Buffer, app: &mut App, lay: &Layout) {
     } else {
         let tail = format!("{GROK_VERSION} [alpha]");
         let x = put_right(buf, end, vy, &tail, st(th.gray));
-        put_right(buf, x, vy, "Grok Build  ", bold(th.text_primary));
+        put_right(buf, x, vy, "Wizard  ", bold(th.text_primary));
     }
 }
 

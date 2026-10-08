@@ -610,7 +610,7 @@ fn steps(name: &str, cwd: &str) -> Option<Vec<Step>> {
         }
         "error-500" => vec![Step::Sleep(1.0), Step::Fail("We're currently experiencing high demand, which may cause temporary errors.".into())],
         "error-429" => vec![Step::Sleep(1.0), Step::Fail("You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again later.".into())],
-        "error-failed" => vec![Step::Sleep(1.0), Step::Fail("Codex ran out of room in the model's context window. Start a new thread or clear earlier history before retrying.".into())],
+        "error-failed" => vec![Step::Sleep(1.0), Step::Fail("Wizard ran out of room in the model's context window. Start a new thread or clear earlier history before retrying.".into())],
         "error-quota" => vec![Step::Sleep(1.0), Step::Fail("Quota exceeded. Check your plan and billing details.".into())],
         "error-400" => vec![Step::Sleep(1.0), Step::Fail("{\"error\": {\"message\": \"Invalid request (scripted): unsupported parameter\", \"type\": \"invalid_request_error\"}}".into())],
         "error-drop" => vec![

@@ -138,7 +138,7 @@ fn history_stays_in_scrollback_after_exit() {
     let Some(t) = Tmux::new("exit", 120, 36) else {
         return;
     };
-    t.wait("header", |s| s.contains("OpenAI Codex"));
+    t.wait("header", |s| s.contains("Wizard"));
     t.submit("hello there");
     t.wait("the turn to finish", |s| {
         s.contains("hello there") && !s.contains("esc to interrupt") && s.contains("•")
@@ -146,7 +146,7 @@ fn history_stays_in_scrollback_after_exit() {
     t.keys(&["C-c"]);
     t.wait("exit", |s| s.contains("[codexw exited 0]"));
     let full = t.full();
-    assert!(full.contains("OpenAI Codex (v0.147.0)"), "{full}");
+    assert!(full.contains("Wizard (v0.147.0)"), "{full}");
     assert!(full.contains("› hello there"), "{full}");
     assert!(
         full.contains("To continue this session, run codexw resume mock-1"),
@@ -175,7 +175,7 @@ fn resize_replays_history_at_the_new_width() {
     let Some(t) = Tmux::new("resize", 120, 36) else {
         return;
     };
-    t.wait("header", |s| s.contains("OpenAI Codex"));
+    t.wait("header", |s| s.contains("Wizard"));
     t.submit("hello there");
     t.wait("the turn to finish", |s| {
         s.contains("hello there") && !s.contains("esc to interrupt") && s.contains("•")
@@ -189,7 +189,7 @@ fn resize_replays_history_at_the_new_width() {
         width <= 80,
         "a row is {width} wide after the resize:\n{full}"
     );
-    assert_eq!(full.matches("OpenAI Codex (v0.147.0)").count(), 1, "{full}");
+    assert_eq!(full.matches("Wizard (v0.147.0)").count(), 1, "{full}");
     assert_eq!(full.matches("› hello there").count(), 1, "{full}");
     // The tip re-wrapped for 80 columns: four rows instead of three.
     let tip_rows = full
@@ -205,7 +205,7 @@ fn ctrl_c_follows_codex_order() {
     let Some(t) = Tmux::new("ctrlc", 120, 36) else {
         return;
     };
-    t.wait("header", |s| s.contains("OpenAI Codex"));
+    t.wait("header", |s| s.contains("Wizard"));
     // 1. a draft is cleared, the app keeps running
     t.type_("draft text");
     t.wait("draft", |s| s.contains("› draft text"));
@@ -230,7 +230,7 @@ fn chat_never_uses_the_alternate_screen() {
     let Some(t) = Tmux::new("alt", 120, 36) else {
         return;
     };
-    t.wait("header", |s| s.contains("OpenAI Codex"));
+    t.wait("header", |s| s.contains("Wizard"));
     t.submit("hello there");
     t.wait("the turn to finish", |s| {
         s.contains("hello there") && !s.contains("esc to interrupt") && s.contains("•")
@@ -292,7 +292,7 @@ fn idle_codexw_uses_no_cpu() {
     let Some(t) = Tmux::new("idle", 120, 36) else {
         return;
     };
-    t.wait("header", |s| s.contains("OpenAI Codex"));
+    t.wait("header", |s| s.contains("Wizard"));
     t.type_("a draft");
     t.wait("draft", |s| s.contains("› a draft"));
     std::thread::sleep(Duration::from_millis(500));

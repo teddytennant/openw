@@ -169,7 +169,7 @@ pub const STATUS_ITEMS: [Item; 26] = [
         "Remaining usage on the secondary usage limit (omitted when unavailable)",
         Limit,
     ),
-    it("codex-version", "Codex application version", Metadata),
+    it("codex-version", "Wizard application version", Metadata),
     it(
         "context-window-size",
         "Total context window size in tokens (omitted when unknown)",
@@ -226,7 +226,7 @@ pub const TITLE_ITEMS: [Item; 21] = [
         "Project name (falls back to current directory name)",
         PathAccent,
     ),
-    it("app-name", "Codex app name", Metadata),
+    it("app-name", "Wizard app name", Metadata),
     it("current-dir", "Current working directory", PathAccent),
     it(
         "run-state",
@@ -263,7 +263,7 @@ pub const TITLE_ITEMS: [Item; 21] = [
         "Remaining usage on the secondary usage limit (omitted when unavailable)",
         Limit,
     ),
-    it("codex-version", "Codex application version", Metadata),
+    it("codex-version", "Wizard application version", Metadata),
     it(
         "used-tokens",
         "Total tokens used in session (omitted when zero)",

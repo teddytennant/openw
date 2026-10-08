@@ -706,7 +706,7 @@ fn exec_view(req: &PermissionRequest) -> ApprovalView {
         ..Decision::plain(&req.id, false)
     };
     choices.push(Choice {
-        label: "No, and tell Codex what to do differently".into(),
+        label: "No, and tell Wizard what to do differently".into(),
         shortcut: Some("esc"),
         keys: vec![KeyCode::Char('n')],
         desc: None,
@@ -762,7 +762,7 @@ fn patch_view(req: &PermissionRequest) -> ApprovalView {
         ..Decision::plain(&req.id, false)
     };
     choices.push(Choice {
-        label: "No, and tell Codex what to do differently".into(),
+        label: "No, and tell Wizard what to do differently".into(),
         shortcut: Some("esc"),
         keys: vec![KeyCode::Char('n')],
         desc: None,
@@ -1598,7 +1598,7 @@ mod tests {
             "",
             "› 1. Yes, proceed (y)",
             "  2. Yes, and don't ask again for commands that start with `echo hello world` (p)",
-            "  3. No, and tell Codex what to do differently (esc)",
+            "  3. No, and tell Wizard what to do differently (esc)",
             "",
             "  Press enter to confirm or esc to cancel",
         ];
@@ -1630,7 +1630,7 @@ mod tests {
             })
             .unwrap();
         assert!(
-            buf[(48, row3)].modifier.contains(Modifier::DIM),
+            buf[(49, row3)].modifier.contains(Modifier::DIM),
             "the key of an unselected row is dim"
         );
         assert!(
@@ -1649,7 +1649,7 @@ mod tests {
         let v = build_view(&bash(""));
         let got = render(v.as_ref(), 100);
         assert!(!got.iter().any(|r| r.contains("don't ask again")));
-        assert!(got.iter().any(|r| r.contains("2. No, and tell Codex")));
+        assert!(got.iter().any(|r| r.contains("2. No, and tell Wizard")));
     }
 
     // 80x24 capture: the long option wraps under its text, five columns in
@@ -1691,7 +1691,7 @@ mod tests {
                 "",
                 "› 1. Yes, proceed (y)",
                 "  2. Yes, and don't ask again for these files (a)",
-                "  3. No, and tell Codex what to do differently (esc)",
+                "  3. No, and tell Wizard what to do differently (esc)",
                 "",
                 "  Press enter to confirm or esc to cancel",
             ]

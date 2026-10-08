@@ -682,6 +682,13 @@ impl App {
                 self.retry = Some((n, self.reply_size()));
                 return;
             }
+            Event::Notice { text, .. }
+                if agent_core::switched_look(text).is_some_and(|l| l != "grok") =>
+            {
+                // `/ui <look>`: wizard saved it; leaving hands the terminal to that look
+                self.quit = true;
+                return;
+            }
             Event::Notice { level, text } => {
                 // the plan toggle's own answer says which state it is in
                 if text.to_lowercase().contains("plan mode") {

@@ -1,7 +1,7 @@
 // OWNER: home (logo rows and wordmark)
 //! The wordmark in opencode's 4-row slot: left half muted, right half bright, `_ ^ ~ ,` markers
 //! turned into shadow cells. The geometry and marker rules are opencode's `logo.ts`; the letters
-//! are ours (`open` + `w`).
+//! are ours (`wiz` + `ard`).
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -14,15 +14,23 @@ pub const HEIGHT: u16 = 4;
 pub const SLOT_WIDTH: u16 = 39;
 
 const LEFT: [&str; 4] = [
-    "                   ",
-    "█▀▀█ █▀▀█ █▀▀█ █▀▀▄",
-    "█__█ █__█ █^^^ █__█",
-    "▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀~~▀",
+    "      ▀     ",
+    "█   █ █ ▀▀▀█",
+    "█ █ █ █  ▄▀ ",
+    "▀▀▀▀▀ ▀ ▀▀▀▀",
 ];
-const RIGHT: [&str; 4] = ["     ", "█   █", "█ █ █", "▀▀▀▀▀"];
+const RIGHT: [&str; 4] = [
+    "             █",
+    "█▀▀█ █▀▀▀ █▀▀█",
+    "█▀▀█ █    █__█",
+    "▀  ▀ ▀    ▀▀▀▀",
+];
 
-/// Display width of the wordmark: 19 + 1 + 5.
-pub const WIDTH: u16 = 25;
+/// Display width of the left half; the right half starts one cell after it.
+const LEFT_WIDTH: u16 = 12;
+
+/// Display width of the wordmark: 12 + 1 + 14.
+pub const WIDTH: u16 = 27;
 
 /// `bg + (fg - bg) * a` per channel, the logo's shadow.
 pub fn tint(bg: Color, fg: Color, a: f32) -> Color {
@@ -85,7 +93,7 @@ pub fn draw(buf: &mut Buffer, x: u16, y: u16, theme: &Theme) {
             fg: theme.text,
             bold: true,
         };
-        half(buf, x + 20, yy, right, theme, clip);
+        half(buf, x + LEFT_WIDTH + 1, yy, right, theme, clip);
     }
 }
 
@@ -135,15 +143,11 @@ mod tests {
         let theme = Theme::default_theme(tuikit::Mode::Dark);
         let mut t = TestTerminal::new(40, 6);
         t.draw(|b, _| draw(b, 2, 1, &theme));
-        // `_` in the left half is a space on the tinted background.
-        let c = t.cell(2 + 1, 3).unwrap();
+        // `_` in the right half is a space on the tinted background.
+        let c = t.cell(2 + 13 + 11, 3).unwrap();
         assert_eq!(c.symbol(), " ");
-        assert_eq!(c.bg, Color::Rgb(40, 40, 40));
-        // `^` is a half block over the shadow color
-        let c = t.cell(2 + 11, 3).unwrap();
-        assert_eq!(c.symbol(), "▀");
-        assert_eq!(c.bg, Color::Rgb(40, 40, 40));
-        assert_eq!(t.row(2), "  █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █   █");
+        assert_eq!(c.bg, tint(theme.background, theme.text, 0.25));
+        assert_eq!(t.row(2), "  █   █ █ ▀▀▀█ █▀▀█ █▀▀▀ █▀▀█");
     }
 
     #[test]

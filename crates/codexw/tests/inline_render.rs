@@ -45,7 +45,7 @@ fn history_scrolls_into_the_terminal_scrollback_in_order() {
     for n in 1..60 {
         assert!(at(n - 1) < at(n), "order broken at {n}");
     }
-    assert_eq!(full.matches("OpenAI Codex (v0.147.0)").count(), 1);
+    assert_eq!(full.matches("Wizard (v0.147.0)").count(), 1);
     // Once the screen is full the viewport sits on the last five rows.
     let rows = h.screen.rows();
     assert!(rows[35].starts_with("  gpt-5.5 default"), "{rows:?}");
@@ -77,7 +77,7 @@ fn resize_replays_history_at_the_new_width() {
     h.resize(80, 24);
     let full = h.screen.full_text();
     assert!(full.lines().all(|l| l.chars().count() <= 80), "{full}");
-    assert_eq!(full.matches("OpenAI Codex (v0.147.0)").count(), 1);
+    assert_eq!(full.matches("Wizard (v0.147.0)").count(), 1);
     assert!(full.contains("• line 4"));
     // Tip wraps to four rows at 80 columns.
     let tip = full
@@ -99,7 +99,7 @@ fn ctrl_l_wipes_screen_and_scrollback_and_keeps_only_the_header() {
     h.draw();
     let full = h.screen.full_text();
     assert!(!full.contains("line 3"), "history survived Ctrl+L:\n{full}");
-    assert!(full.contains("OpenAI Codex"));
+    assert!(full.contains("Wizard"));
     assert!(!full.contains("Tip:"), "Ctrl+L shows no tip");
 }
 

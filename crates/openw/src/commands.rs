@@ -150,7 +150,6 @@ const HIDDEN_BACKEND: &[&str] = &[
     "settings",
     "dashboard",
     "vim",
-    "ui",
     "view",
     "resume-claude",
     "help",

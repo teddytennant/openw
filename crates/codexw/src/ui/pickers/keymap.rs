@@ -325,7 +325,7 @@ impl BottomView for KeymapView {
             }
             KeyCode::Enter => {
                 return ViewResult::CloseWith(AppAction::Error(
-                    "Shortcuts cannot be remapped in codexw: they are fixed to Codex's defaults, which this list shows."
+                    "Shortcuts cannot be remapped in codexw: they are fixed to Wizard's defaults, which this list shows."
                         .into(),
                 ));
             }
@@ -355,13 +355,13 @@ impl InspectorView {
         let mut lines: Vec<Line<'static>> = vec![
             Line::from("Keypress Inspector".bold()),
             Line::from(
-                "Press any key to see what Codex receives. Esc is inspected; Ctrl+C closes.".dim(),
+                "Press any key to see what Wizard receives. Esc is inspected; Ctrl+C closes.".dim(),
             ),
         ];
         match &self.last {
             None => {
                 lines.push(Line::from(
-                    "Still waiting? If nothing changes when you press a key, your terminal is not sending that key to Codex. Only received keys can be assigned as shortcuts."
+                    "Still waiting? If nothing changes when you press a key, your terminal is not sending that key to Wizard. Only received keys can be assigned as shortcuts."
                         .dim(),
                 ));
                 lines.push(Line::default());
@@ -369,7 +369,7 @@ impl InspectorView {
             }
             Some(rows) => {
                 lines.push(Line::from(
-                    "Tip: Codex can only inspect keys your terminal sends.".dim(),
+                    "Tip: Wizard can only inspect keys your terminal sends.".dim(),
                 ));
                 lines.push(Line::default());
                 for r in rows {

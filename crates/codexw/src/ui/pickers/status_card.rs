@@ -241,7 +241,7 @@ impl StatusData {
         let mut lines: Vec<Line<'static>> = vec![
             Line::from(vec![
                 Span::from(format!("{INDENT}>_ ")).dim(),
-                Span::from("OpenAI Codex").bold(),
+                Span::from("Wizard").bold(),
                 Span::from(" ").dim(),
                 Span::from(format!("(v{VERSION})")).dim(),
             ]),

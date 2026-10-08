@@ -221,8 +221,8 @@ fn new_prints_the_old_sessions_summary_before_the_new_header() {
     let summary = t
         .find("Token usage: total=1,500 input=1,200 output=300")
         .expect("summary");
-    let second_header = t.rfind("OpenAI Codex").expect("second header");
-    let first_header = t.find("OpenAI Codex").expect("first header");
+    let second_header = t.rfind("Wizard").expect("second header");
+    let first_header = t.find("Wizard").expect("first header");
     assert!(first_header < summary && summary < second_header, "{t}");
 }
 
@@ -240,9 +240,9 @@ fn clear_wipes_the_screen_and_leaves_header_tip_and_summary() {
     h.draw();
     let rows = h.screen.rows();
     assert!(rows[0].starts_with("╭"), "{rows:?}");
-    assert!(rows[1].contains("OpenAI Codex"));
+    assert!(rows[1].contains("Wizard"));
     let t = h.screen.full_text();
-    assert_eq!(t.matches("OpenAI Codex").count(), 1, "{t}");
+    assert_eq!(t.matches("Wizard").count(), 1, "{t}");
     assert!(t.contains("Token usage: total=1,500 input=1,200 output=300"));
 }
 
@@ -323,7 +323,7 @@ fn resume_opens_the_picker_on_the_alternate_screen_and_loads_the_pick() {
     });
     h.draw();
     let t = h.screen.full_text();
-    let header = t.rfind("OpenAI Codex").unwrap();
+    let header = t.rfind("Wizard").unwrap();
     let user = t
         .find("› first session fake:text")
         .expect("replayed user row");
@@ -385,7 +385,7 @@ fn startup_picker_holds_the_header_until_a_choice() {
     h.key(KeyCode::Esc);
     h.draw();
     assert!(!h.screen.in_alt_screen());
-    assert!(h.screen.full_text().contains("OpenAI Codex"));
+    assert!(h.screen.full_text().contains("Wizard"));
 }
 
 #[test]
@@ -433,7 +433,7 @@ fn startup_pick_loads_without_a_summary() {
     });
     h.draw();
     let t = h.screen.full_text();
-    assert_eq!(t.matches("OpenAI Codex").count(), 1, "{t}");
+    assert_eq!(t.matches("Wizard").count(), 1, "{t}");
     assert!(t.contains("› second session fake:text"));
     assert!(!t.contains("To continue this session"));
 }
@@ -474,7 +474,7 @@ fn resume_last_with_nothing_to_resume_starts_a_new_session() {
             .iter()
             .all(|r| !matches!(r, Request::LoadSession(_)))
     );
-    assert!(h.screen.full_text().contains("OpenAI Codex"));
+    assert!(h.screen.full_text().contains("Wizard"));
 }
 
 // ---- /rename ---------------------------------------------------------------------------------
