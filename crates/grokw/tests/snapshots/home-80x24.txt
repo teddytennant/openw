@@ -1,0 +1,23 @@
+
+   main /tmp/grok-harvest-000000/proj
+
+
+               New worktree                                 ctrl+w
+               Resume session                               ctrl+r
+               Changelog
+               Quit                                         ctrl+q
+
+               grokw runs on wizard.
+               Models, sessions and tools come from wizard acp;
+               commands wizard cannot back say so.
+
+
+
+
+   Tip: Use Shift+Tab to cycle between modes like Plan mode.
+
+  ╭──────────────────────────────────────────────────────────────────────────╮
+  │ ❯                                                                        │
+  ╰──────────────────────────────────────────────────────── Grok 4.7 (high) ─╯
+
+                                                    Grok Build  1.0.24 [alpha]
