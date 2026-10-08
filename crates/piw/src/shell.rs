@@ -20,6 +20,32 @@ use std::time::{Duration, Instant};
 
 use tokio::io::AsyncReadExt;
 
+/// `pipe2(O_CLOEXEC)` on Linux. macOS has no `pipe2`; set the flag on a plain pipe.
+///
+/// # Safety
+/// `fds` must point at two `c_int`s.
+unsafe fn cloexec_pipe(fds: *mut libc::c_int) -> libc::c_int {
+    #[cfg(target_os = "linux")]
+    {
+        libc::pipe2(fds, libc::O_CLOEXEC)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let rc = libc::pipe(fds);
+        if rc != 0 {
+            return rc;
+        }
+        for i in 0..2 {
+            let fd = *fds.add(i);
+            let fl = libc::fcntl(fd, libc::F_GETFD);
+            if fl < 0 || libc::fcntl(fd, libc::F_SETFD, fl | libc::FD_CLOEXEC) < 0 {
+                return -1;
+            }
+        }
+        0
+    }
+}
+
 /// Most output kept, from the end.
 pub const TAIL_BYTES: usize = 256 * 1024;
 const PING_EVERY: Duration = Duration::from_millis(40);
@@ -103,8 +129,8 @@ impl ShellJob {
                 cmd = tokio::process::Command::new(exe);
                 cmd.arg("--guard").arg("sh").arg("-c").arg(line);
                 let mut fds = [0 as libc::c_int; 2];
-                // SAFETY: pipe2 fills the two descriptors.
-                if unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) } != 0 {
+                // SAFETY: cloexec_pipe fills the two descriptors and sets FD_CLOEXEC.
+                if unsafe { cloexec_pipe(fds.as_mut_ptr()) } != 0 {
                     return Err(std::io::Error::last_os_error());
                 }
                 let (r, w) = (fds[0], fds[1]);
@@ -137,8 +163,9 @@ impl ShellJob {
                 cmd = tokio::process::Command::new("sh");
                 cmd.arg("-c").arg(line).process_group(0).kill_on_drop(true);
                 // piw killed outright must not leave the shell behind (its children are the
-                // guard's job; this is the fallback without one)
-                // SAFETY: prctl is async-signal-safe.
+                // guard's job; this is the fallback without one). macOS has no
+                // PR_SET_PDEATHSIG; the process group above is what cancel signals there.
+                #[cfg(target_os = "linux")]
                 unsafe {
                     cmd.pre_exec(|| {
                         libc::prctl(

@@ -18,6 +18,32 @@ use std::sync::OnceLock;
 const SIGTERM: i32 = libc::SIGTERM;
 const SIGKILL: i32 = libc::SIGKILL;
 
+/// `pipe2(O_CLOEXEC)` on Linux. macOS has no `pipe2`; set the flag on a plain pipe.
+///
+/// # Safety
+/// `fds` must point at two `c_int`s.
+unsafe fn cloexec_pipe(fds: *mut libc::c_int) -> libc::c_int {
+    #[cfg(target_os = "linux")]
+    {
+        libc::pipe2(fds, libc::O_CLOEXEC)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let rc = libc::pipe(fds);
+        if rc != 0 {
+            return rc;
+        }
+        for i in 0..2 {
+            let fd = *fds.add(i);
+            let fl = libc::fcntl(fd, libc::F_GETFD);
+            if fl < 0 || libc::fcntl(fd, libc::F_SETFD, fl | libc::FD_CLOEXEC) < 0 {
+                return -1;
+            }
+        }
+        0
+    }
+}
+
 /// The executable that runs as the guard (`<exe> --guard <bin> <args>`), set once by the
 /// frontend, normally to its own path. Unset (tests, other callers) means claude is started
 /// directly in its own process group, as before.
@@ -153,7 +179,7 @@ impl Proc {
             // the tree when openc drops this handle.
             cmd.kill_on_drop(false);
             let mut fds = [0 as libc::c_int; 2];
-            if unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) } != 0 {
+            if unsafe { cloexec_pipe(fds.as_mut_ptr()) } != 0 {
                 return Err(std::io::Error::last_os_error()).context("pipe for the guard");
             }
             let (r, w) = (fds[0], fds[1]);
@@ -367,9 +393,10 @@ mod tests {
     fn args_for_new_and_resumed_sessions() {
         let a = build_args(&launch(SessionArg::New("abc".into())));
         assert!(a.windows(2).any(|w| w == ["--session-id", "abc"]));
-        assert!(a
-            .windows(2)
-            .any(|w| w == ["--permission-mode", "bypassPermissions"]));
+        assert!(
+            a.windows(2)
+                .any(|w| w == ["--permission-mode", "bypassPermissions"])
+        );
         assert!(a.contains(&"--include-partial-messages".to_string()));
         assert!(!a.contains(&"--resume".to_string()));
 

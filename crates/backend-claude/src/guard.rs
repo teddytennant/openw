@@ -46,14 +46,20 @@ pub fn run(args: Vec<std::ffi::OsString>) -> i32 {
     // A name `pkill openc` does not match, so a user killing openc cannot take the guard down
     // before it has cleaned up.
     unsafe {
-        libc::prctl(
-            libc::PR_SET_NAME,
-            c"openc-guard".as_ptr() as libc::c_ulong,
-            0,
-            0,
-            0,
-        );
-        libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1 as libc::c_ulong, 0, 0, 0);
+        // Subreaper, pdeathsig and prctl(PR_SET_NAME) are Linux. On other unix the
+        // guard still starts the child and watches the control pipe; it just cannot
+        // adopt orphans through /proc, which does not exist there either.
+        #[cfg(target_os = "linux")]
+        {
+            libc::prctl(
+                libc::PR_SET_NAME,
+                c"openc-guard".as_ptr() as libc::c_ulong,
+                0,
+                0,
+                0,
+            );
+            libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1 as libc::c_ulong, 0, 0, 0);
+        }
         // Not inherited by claude or its tools: fd 3 means something else to them.
         let fl = libc::fcntl(CTL_FD, libc::F_GETFD);
         if fl >= 0 {
@@ -97,6 +103,8 @@ pub fn run(args: Vec<std::ffi::OsString>) -> i32 {
         .stderr(Stdio::inherit());
     // If the guard is killed outright, claude still goes. The guard's main thread never exits
     // before the guard does, so the "parent thread died" gotcha of this flag does not apply.
+    // macOS has no PR_SET_PDEATHSIG; the process group is the fallback there.
+    #[cfg(target_os = "linux")]
     unsafe {
         cmd.pre_exec(|| {
             libc::prctl(
