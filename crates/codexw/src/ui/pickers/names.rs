@@ -41,9 +41,10 @@ pub fn set(home: &str, id: &str, name: &str) -> std::io::Result<()> {
 
 /// `codexw resume, then select my-thread (<uuid>)`, or `codexw resume <uuid>` when unnamed.
 pub fn resume_hint(name: Option<&str>, id: &str) -> String {
+    let program = crate::program();
     match name {
-        Some(n) => format!("codexw resume, then select {n} ({id})"),
-        None => format!("codexw resume {id}"),
+        Some(n) => format!("{program} resume, then select {n} ({id})"),
+        None => format!("{program} resume {id}"),
     }
 }
 

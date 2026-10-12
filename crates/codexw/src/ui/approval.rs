@@ -73,13 +73,13 @@ impl Decision {
 /// A line printed into the history after a decision (spec C.8.4, B.10).
 #[derive(Clone, Debug, PartialEq)]
 pub enum DecisionCell {
-    /// `✔ You approved codex to run {snippet} this time`
+    /// `✔ You approved wizard to run {snippet} this time`
     Approved(String),
-    /// `✔ You approved codex to always run commands that start with {prefix}`
+    /// `✔ You approved wizard to always run commands that start with {prefix}`
     ApprovedPrefix(String),
-    /// `✔ You approved codex to run {snippet} every time this session`
+    /// `✔ You approved wizard to run {snippet} every time this session`
     ApprovedSession(String),
-    /// `✗ You did not approve codex to run {snippet}`
+    /// `✗ You did not approve wizard to run {snippet}`
     Denied(String),
     /// `✗ You canceled the request to run {snippet}`
     Aborted(String),
@@ -128,7 +128,7 @@ impl HistoryCell for DecisionCell {
                 Span::styled("✔ ", green),
                 Span::from("You "),
                 Span::styled("approved", bold),
-                Span::from(" codex to run "),
+                Span::from(" wizard to run "),
                 Span::styled(exec_snippet(s), dim),
                 Span::styled(" this time", bold),
             ]),
@@ -136,14 +136,14 @@ impl HistoryCell for DecisionCell {
                 Span::styled("✔ ", green),
                 Span::from("You "),
                 Span::styled("approved", bold),
-                Span::from(" codex to always run commands that start with "),
+                Span::from(" wizard to always run commands that start with "),
                 Span::styled(exec_snippet(s), dim),
             ]),
             Self::ApprovedSession(s) => wrap(vec![
                 Span::styled("✔ ", green),
                 Span::from("You "),
                 Span::styled("approved", bold),
-                Span::from(" codex to run "),
+                Span::from(" wizard to run "),
                 Span::styled(exec_snippet(s), dim),
                 Span::styled(" every time this session", bold),
             ]),
@@ -151,7 +151,7 @@ impl HistoryCell for DecisionCell {
                 Span::styled("✗ ", red),
                 Span::from("You "),
                 Span::styled("did not approve", bold),
-                Span::from(" codex to run "),
+                Span::from(" wizard to run "),
                 Span::styled(exec_snippet(s), dim),
             ]),
             Self::Aborted(s) => wrap(vec![
@@ -2068,7 +2068,7 @@ mod tests {
         dark();
         assert_eq!(
             plain(&DecisionCell::Approved("echo hello world".into()), 80),
-            vec!["✔ You approved codex to run echo hello world this time"]
+            vec!["✔ You approved wizard to run echo hello world this time"]
         );
         assert_eq!(
             plain(&DecisionCell::Aborted("echo line1\necho line2".into()), 80),
@@ -2086,7 +2086,7 @@ mod tests {
                 &DecisionCell::ApprovedPrefix("touch approved.txt".into()),
                 120
             ),
-            vec!["✔ You approved codex to always run commands that start with touch approved.txt"]
+            vec!["✔ You approved wizard to always run commands that start with touch approved.txt"]
         );
         assert_eq!(
             plain(

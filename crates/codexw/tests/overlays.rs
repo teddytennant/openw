@@ -442,7 +442,7 @@ fn exec_approval_replaces_the_composer_and_y_approves() {
     );
     let full = h.screen.full_text();
     assert!(
-        full.contains("✔ You approved codex to run touch approved.txt && echo created this time"),
+        full.contains("✔ You approved wizard to run touch approved.txt && echo created this time"),
         "{full}"
     );
     assert!(!h.screen.text().contains("Would you like to run"));
@@ -503,7 +503,7 @@ fn approval_keys_not_on_the_list_do_nothing_and_p_always_allows() {
         "{sent:?}"
     );
     assert!(h.screen.full_text().contains(
-        "✔ You approved codex to always run commands that start with touch approved.txt"
+        "✔ You approved wizard to always run commands that start with touch approved.txt"
     ));
 }
 

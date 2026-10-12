@@ -1118,7 +1118,7 @@ fn keymap_tabs_search_and_the_remap_refusal() {
     assert!(
         h.screen
             .text()
-            .contains("■ Shortcuts cannot be remapped in codexw"),
+            .contains("■ Shortcuts cannot be remapped in the codex look"),
         "{}",
         h.screen.text()
     );

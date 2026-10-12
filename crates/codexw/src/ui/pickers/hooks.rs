@@ -84,7 +84,7 @@ impl BottomView for HooksView {
             buf,
             y,
             Line::from(Span::styled(
-                "Lifecycle hooks from config and enabled plugins.",
+                "Lifecycle hooks from wizard's hooks.toml files.",
                 Style::default().dim(),
             )),
         );

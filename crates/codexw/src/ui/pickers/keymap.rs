@@ -325,7 +325,7 @@ impl BottomView for KeymapView {
             }
             KeyCode::Enter => {
                 return ViewResult::CloseWith(AppAction::Error(
-                    "Shortcuts cannot be remapped in codexw: they are fixed to Wizard's defaults, which this list shows."
+                    "Shortcuts cannot be remapped in the codex look: they are fixed to Wizard's defaults, which this list shows."
                         .into(),
                 ));
             }

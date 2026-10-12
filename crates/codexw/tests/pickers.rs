@@ -197,7 +197,7 @@ fn status_card_follows_the_echo_and_names_what_wizard_lacks() {
     assert!(t.contains("never (wizard does not ask)"));
     assert!(t.contains("1.5K total  (1.2K input + 300 output)"), "{t}");
     assert!(t.contains("unknown (wizard does not report the window size)"));
-    assert!(t.contains("Limits:") && t.contains("unknown (no subscription signed in)"));
+    assert!(t.contains("Limits:") && t.contains("run /usage to see plan limits"));
 }
 
 #[test]

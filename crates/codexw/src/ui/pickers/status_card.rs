@@ -274,7 +274,7 @@ impl StatusData {
         }
         lines.push(f.line(
             "Limits",
-            vec![Span::from("unknown (no subscription signed in)").dim()],
+            vec![Span::from("run /usage to see plan limits").dim()],
         ));
 
         let content = lines.iter().map(line_width).max().unwrap_or(0);

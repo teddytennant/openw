@@ -4,6 +4,21 @@
 // Edition 2024 turns on let chains; code written before that nests `if let` on purpose.
 #![allow(clippy::collapsible_if)]
 
+/// The command that starts this binary, for hints that tell the user what to run:
+/// `wizard-ui-codex` when wizard installed it under that name, `codexw` otherwise.
+pub fn program() -> &'static str {
+    static NAME: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+    NAME.get_or_init(|| {
+        let arg0 = std::env::args_os().next().unwrap_or_default();
+        let name = std::path::Path::new(&arg0).file_stem();
+        if name.is_some_and(|n| n == "wizard-ui-codex") {
+            "wizard-ui-codex"
+        } else {
+            "codexw"
+        }
+    })
+}
+
 pub mod app;
 pub mod clipboard;
 pub mod commands;

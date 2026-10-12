@@ -182,7 +182,7 @@ pub fn hooks_lines(global: &[Table], project: &[Table]) -> Vec<Line<'static>> {
     let mut out = vec![
         Line::from(Span::styled("Hooks", Style::default().bold())),
         Line::from(Span::styled(
-            "Lifecycle hooks from config and enabled plugins.",
+            "Lifecycle hooks from wizard's hooks.toml files.",
             dim(),
         )),
         Line::default(),

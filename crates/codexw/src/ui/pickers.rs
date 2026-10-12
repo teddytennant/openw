@@ -140,7 +140,10 @@ pub fn model_params(cfg: &Config) -> SelectionParams {
         .collect();
     SelectionParams {
         title: Some("Select Model and Effort".into()),
-        subtitle: Some("Start with a different one by running codexw -m <provider>/<model>".into()),
+        subtitle: Some(format!(
+            "Start with a different one by running {} -m <provider>/<model>",
+            crate::program()
+        )),
         items,
         ..Default::default()
     }
