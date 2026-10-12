@@ -627,9 +627,14 @@ pub struct Harness {
     pub bytes: Vec<u8>,
 }
 
+/// The tip the Codex captures were taken with. The harness shows it in place of codexw's own,
+/// so rows and bytes still line up with the captures.
+pub const CAPTURE_TIP: &str = "Our most capable model yet. GPT-5.6 Sol can tackle complex code changes, dig into research, produce polished documents, and take on your most ambitious work. Sol is highly capable at lower reasoning efforts\u{2014}try starting lower, then turn it up for harder jobs.";
+
 /// A headless app on a `cols` x `rows` screen with the cursor at the top, as in a fresh tmux
 /// pane, home `/tmp/cxw-home` and cwd `/tmp/cxw-home/proj` (shown as `~/proj`), model
-/// `gpt-5.5`, the dark capture palette. `placeholder` picks the composer placeholder.
+/// `gpt-5.5`, the dark capture palette, the capture's tip. `placeholder` picks the composer
+/// placeholder.
 pub fn harness(cols: u16, rows: u16, placeholder: usize) -> Harness {
     harness_with(
         cols,
@@ -650,6 +655,7 @@ pub fn harness_with(cols: u16, rows: u16, mut opts: AppOpts) -> Harness {
     }
     opts.home.get_or_insert_with(|| "/tmp/cxw-home".into());
     opts.model.get_or_insert_with(|| "gpt-5.5".into());
+    opts.tip.get_or_insert_with(|| CAPTURE_TIP.into());
     let app = App::new(
         opts,
         tx,

@@ -54,6 +54,8 @@ pub struct AppOpts {
     pub no_alt_screen: bool,
     /// Pick the composer placeholder (tests); `None` picks one at random.
     pub placeholder: Option<usize>,
+    /// The tip under the header (tests); `None` shows `DEFAULT_TIP`.
+    pub tip: Option<String>,
     /// Home directory for `~` display; `None` reads `$HOME`.
     pub home: Option<String>,
     /// `-c tui.status_line=[]`: the footer shows Codex's hint row instead of the status line.
@@ -500,7 +502,9 @@ impl<W: Write> App<W> {
         );
         let info = SessionInfoCell {
             header,
-            tip: Some(TooltipCell::new(DEFAULT_TIP)),
+            tip: Some(TooltipCell::new(
+                self.opts.tip.as_deref().unwrap_or(DEFAULT_TIP),
+            )),
         };
         let mut tail: Option<BoxedCell> = None;
         match self.switch.take() {

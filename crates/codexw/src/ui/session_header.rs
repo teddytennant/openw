@@ -244,8 +244,9 @@ impl HistoryCell for TooltipCell {
     }
 }
 
-/// The tip Codex shows on every fresh start of this build.
-pub const DEFAULT_TIP: &str = "Our most capable model yet. GPT-5.6 Sol can tackle complex code changes, dig into research, produce polished documents, and take on your most ambitious work. Sol is highly capable at lower reasoning efforts\u{2014}try starting lower, then turn it up for harder jobs.";
+/// The tip on every fresh start: where the user is and the way out.
+pub const DEFAULT_TIP: &str =
+    "This is wizard's codex look. Type /ui to see the others or to switch back to the wizard look.";
 
 /// Header, one blank row, tip: what `SessionInfoCell` is when a session starts.
 #[derive(Clone, Debug)]
@@ -339,10 +340,15 @@ mod tests {
     }
 
     #[test]
-    fn tip_wraps_at_120() {
+    fn tip_is_one_row_at_120_and_wraps_when_narrow() {
         let t = TooltipCell::new(DEFAULT_TIP);
         let l = text(&t.display_lines(120));
-        assert_eq!(l.len(), 3);
-        assert!(l[0].starts_with("  Tip: Our most capable model yet."));
+        assert_eq!(
+            l,
+            [
+                "  Tip: This is wizard's codex look. Type /ui to see the others or to switch back to the wizard look."
+            ]
+        );
+        assert_eq!(t.display_lines(60).len(), 2);
     }
 }

@@ -147,6 +147,10 @@ fn history_stays_in_scrollback_after_exit() {
     t.wait("exit", |s| s.contains("[codexw exited 0]"));
     let full = t.full();
     assert!(full.contains("Wizard (v0.147.0)"), "{full}");
+    assert!(
+        full.contains("Tip: This is wizard's codex look. Type /ui to see the others"),
+        "{full}"
+    );
     assert!(full.contains("› hello there"), "{full}");
     assert!(
         full.contains("To continue this session, run codexw resume mock-1"),
@@ -191,13 +195,13 @@ fn resize_replays_history_at_the_new_width() {
     );
     assert_eq!(full.matches("Wizard (v0.147.0)").count(), 1, "{full}");
     assert_eq!(full.matches("› hello there").count(), 1, "{full}");
-    // The tip re-wrapped for 80 columns: four rows instead of three.
+    // The tip re-wrapped for 80 columns: two rows instead of one.
     let tip_rows = full
         .lines()
         .skip_while(|l| !l.contains("Tip:"))
         .take_while(|l| l.starts_with("  "))
         .count();
-    assert!(tip_rows >= 4, "tip rows {tip_rows}\n{full}");
+    assert!(tip_rows >= 2, "tip rows {tip_rows}\n{full}");
 }
 
 #[test]
