@@ -12,7 +12,7 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::commands::{COMMANDS, HIDDEN};
+use crate::commands::{COMMANDS, HIDDEN, Support};
 use crate::style::palette;
 use crate::wrap::{WrapOpts, width_of, word_wrap_line};
 
@@ -295,9 +295,13 @@ pub struct SlashItem {
 }
 
 /// Popup order (spec C.6.1) with the typed-only aliases next to the command they stand for.
+/// Commands wizard cannot back are left out; typing one still says why.
 pub fn all_items() -> Vec<SlashItem> {
     let mut out = Vec::new();
     for c in COMMANDS {
+        if matches!(c.support, Support::No(_)) {
+            continue;
+        }
         if c.name == "exit" {
             if let Some((n, d)) = HIDDEN.iter().find(|(n, _)| *n == "quit") {
                 out.push(SlashItem {
@@ -495,27 +499,27 @@ mod tests {
     #[test]
     fn filter_is_prefix_with_exact_first() {
         assert_eq!(visible_commands("mo"), vec!["model"]);
-        assert_eq!(visible_commands("st"), vec!["status", "statusline", "stop"]);
-        assert_eq!(
-            visible_commands("p"),
-            vec![
-                "permissions",
-                "plan",
-                "pets",
-                "plugins",
-                "ps",
-                "personality"
-            ]
-        );
+        assert_eq!(visible_commands("st"), vec!["status", "statusline"]);
+        assert_eq!(visible_commands("p"), vec!["plan", "ps"]);
         assert_eq!(visible_commands("qu"), vec!["quit"]);
-        assert_eq!(visible_commands("ar"), vec!["archive"]);
         assert_eq!(visible_commands("MO"), vec!["model"]);
         assert!(visible_commands("nonsense").is_empty());
         // Substring and fuzzy matches are not used.
         assert!(!visible_commands("ac").contains(&"compact"));
         // An exact match jumps ahead of longer prefix matches.
-        assert_eq!(visible_commands("pet")[0], "pets");
         assert_eq!(visible_commands("status")[0], "status");
+    }
+
+    #[test]
+    fn commands_wizard_cannot_back_are_not_listed() {
+        let names = visible_commands("");
+        for c in COMMANDS {
+            let listed = names.contains(&c.name);
+            assert_eq!(listed, !matches!(c.support, Support::No(_)), "/{}", c.name);
+        }
+        for gone in ["fast", "ide", "experimental", "approve", "permissions"] {
+            assert!(visible_commands(gone).is_empty(), "/{gone}");
+        }
     }
 
     #[test]
@@ -528,7 +532,6 @@ mod tests {
             vec![
                 "  /status      show current session configuration and token usage",
                 "  /statusline  configure which items appear in the status line",
-                "  /stop        stop all background terminals",
             ]
         );
     }
@@ -573,18 +576,17 @@ mod tests {
         let rows = dump(&p, 120);
         assert_eq!(
             rows[0],
-            "  /model         choose what model and reasoning effort to use"
+            "  /model       choose what model and reasoning effort to use"
         );
-        // The name column is the widest name over all rows, `/experimental`, plus two.
-        assert_eq!(rows[1], "  /ui            switch to another wizard look");
-        assert!(rows[2].starts_with("  /fast          1.5x speed, increased usage"));
-        assert!(rows[3].starts_with("  /ide           include current selection"));
+        // The name column is the widest name over all rows, `/statusline`, plus two.
+        assert_eq!(rows[1], "  /ui          switch to another wizard look");
+        assert_eq!(rows[2], "  /keymap      show the keyboard shortcuts");
         for _ in 0..12 {
             p.move_down();
         }
         let rows = dump(&p, 120);
-        assert!(rows.last().unwrap().starts_with("  /hooks "), "{rows:?}");
-        assert!(rows[0].starts_with("  /keymap "), "{rows:?}");
+        assert!(rows.last().unwrap().starts_with("  /compact "), "{rows:?}");
+        assert!(rows[0].starts_with("  /skills "), "{rows:?}");
     }
 
     #[test]
@@ -599,10 +601,11 @@ mod tests {
     #[test]
     fn long_descriptions_wrap_under_the_name_column() {
         let p = SlashPopup::new("");
-        // At 80 columns `/ide` wraps to a second line (spec C.3: 9 lines).
-        assert_eq!(p.required_height(80), 9);
-        let rows = dump(&p, 80);
-        assert!(rows[4].trim_start().starts_with("your IDE"), "{rows:?}");
+        // At 60 columns `/skills` wraps to a second line: 9 lines.
+        assert_eq!(p.required_height(80), 8);
+        assert_eq!(p.required_height(60), 9);
+        let rows = dump(&p, 60);
+        assert_eq!(rows[6], "               specific tasks", "{rows:?}");
     }
 
     #[test]

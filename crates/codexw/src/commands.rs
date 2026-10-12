@@ -4,6 +4,9 @@
 //! The table is in Codex's popup order (spec C.6.1). Every command has a [`Support`] verdict and
 //! the messages for the not-supported ones are the ones Part E gives, in Codex's voice. Wizard
 //! 3.7.1 sends no permission requests over ACP, has no sandbox, no fork, no review mode.
+//!
+//! The popup lists only what works. A [`Support::No`] command stays in the table so that typing
+//! it says why wizard cannot, but it is not offered.
 
 use std::io::Write;
 
@@ -47,7 +50,8 @@ const fn c(
 
 use Support::{Backed, Client, No, Partial};
 
-/// Popup order, descriptions verbatim. `/fast` is listed as Codex does, and says why it does nothing.
+/// Popup order. Descriptions are Codex's where the command does what Codex's does, and say
+/// what wizard does where it differs (`/keymap`, `/memories`, `/hooks`, `/agent`, `/side`).
 pub const COMMANDS: &[CommandSpec] = &[
     c(
         "model",
@@ -78,7 +82,7 @@ pub const COMMANDS: &[CommandSpec] = &[
         ),
         true,
     ),
-    c("keymap", "remap TUI shortcuts", Client, false),
+    c("keymap", "show the keyboard shortcuts", Client, false),
     c("vim", "toggle Vim mode for the composer", Client, false),
     c(
         "experimental",
@@ -94,7 +98,7 @@ pub const COMMANDS: &[CommandSpec] = &[
     ),
     c(
         "memories",
-        "configure memory use and generation",
+        "list, show, or forget saved project memories",
         Backed,
         false,
     ),
@@ -112,7 +116,7 @@ pub const COMMANDS: &[CommandSpec] = &[
         ),
         false,
     ),
-    c("hooks", "view and manage lifecycle hooks", Client, true),
+    c("hooks", "view lifecycle hooks", Client, true),
     c(
         "review",
         "review my current changes and find issues",
@@ -184,10 +188,10 @@ pub const COMMANDS: &[CommandSpec] = &[
         Backed,
         true,
     ),
-    c("agent", "switch the active agent thread", Backed, true),
+    c("agent", "list wizard's subagents", Backed, true),
     c(
         "side",
-        "start a side conversation in an ephemeral fork",
+        "ask a side question without adding it to the conversation",
         Backed,
         true,
     ),
@@ -282,14 +286,17 @@ pub const COMMANDS: &[CommandSpec] = &[
         ),
         true,
     ),
-    c("subagents", "switch the active agent thread", Backed, true),
+    c("subagents", "list wizard's subagents", Backed, true),
 ];
 
 /// Commands that exist but are not listed in the popup unless typed.
 pub const HIDDEN: &[(&str, &str)] = &[
     ("rewind", "go back to before an earlier message"),
     ("quit", "exit Wizard"),
-    ("btw", "start a side conversation in an ephemeral fork"),
+    (
+        "btw",
+        "ask a side question without adding it to the conversation",
+    ),
     ("clean", "stop all background terminals"),
     ("usage", "view account usage or use a usage limit reset"),
     (
@@ -521,6 +528,26 @@ mod tests {
         assert_eq!(lookup("quit").unwrap().name, "exit");
         assert_eq!(lookup("btw").unwrap().name, "side");
         assert!(lookup("nonsense").is_none());
+    }
+
+    #[test]
+    fn every_command_that_works_has_an_arm() {
+        // `run_slash` answers "not implemented" for a listed command it has no arm for.
+        let cfg = agent_core::Config::default();
+        for spec in COMMANDS.iter().chain(HIDDEN_SPECS) {
+            if matches!(spec.support, No(_)) {
+                continue;
+            }
+            let mut h = crate::testing::harness(120, 36, 7);
+            h.app.on_backend(agent_core::Event::Ready {
+                session_id: "s1".into(),
+                config: cfg.clone(),
+            });
+            h.app.run_slash(&format!("/{}", spec.name));
+            h.draw();
+            let t = h.screen.full_text();
+            assert!(!t.contains("is not implemented"), "/{}: {t}", spec.name);
+        }
     }
 
     #[test]
