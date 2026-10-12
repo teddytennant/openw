@@ -576,14 +576,15 @@ mod tests {
             "  /model         choose what model and reasoning effort to use"
         );
         // The name column is the widest name over all rows, `/experimental`, plus two.
-        assert!(rows[1].starts_with("  /fast          1.5x speed, increased usage"));
-        assert!(rows[2].starts_with("  /ide           include current selection"));
+        assert_eq!(rows[1], "  /ui            switch to another wizard look");
+        assert!(rows[2].starts_with("  /fast          1.5x speed, increased usage"));
+        assert!(rows[3].starts_with("  /ide           include current selection"));
         for _ in 0..12 {
             p.move_down();
         }
         let rows = dump(&p, 120);
-        assert!(rows.last().unwrap().starts_with("  /review "), "{rows:?}");
-        assert!(rows[0].starts_with("  /vim "), "{rows:?}");
+        assert!(rows.last().unwrap().starts_with("  /hooks "), "{rows:?}");
+        assert!(rows[0].starts_with("  /keymap "), "{rows:?}");
     }
 
     #[test]
@@ -601,7 +602,7 @@ mod tests {
         // At 80 columns `/ide` wraps to a second line (spec C.3: 9 lines).
         assert_eq!(p.required_height(80), 9);
         let rows = dump(&p, 80);
-        assert!(rows[3].trim_start().starts_with("your IDE"), "{rows:?}");
+        assert!(rows[4].trim_start().starts_with("your IDE"), "{rows:?}");
     }
 
     #[test]

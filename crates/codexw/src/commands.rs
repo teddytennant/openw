@@ -55,6 +55,7 @@ pub const COMMANDS: &[CommandSpec] = &[
         Backed,
         true,
     ),
+    c("ui", "switch to another wizard look", Backed, false),
     c(
         "fast",
         "1.5x speed, increased usage",
@@ -317,12 +318,6 @@ pub const HIDDEN_SPECS: &[CommandSpec] = &[
         Client,
         true,
     ),
-    c(
-        "ui",
-        "list the wizard looks, or switch to one: /ui <name>",
-        Backed,
-        false,
-    ),
 ];
 
 pub fn lookup(name: &str) -> Option<&'static CommandSpec> {
@@ -404,11 +399,8 @@ impl<W: Write> App<W> {
             "hooks" => self.hooks_command(),
             "debug-config" => self.debug_config_command(),
             "usage" => self.wizard_command("/usage".into()),
-            "ui" => self.wizard_command(if rest.is_empty() {
-                "/ui".into()
-            } else {
-                format!("/ui {rest}")
-            }),
+            "ui" if rest.is_empty() => self.open_look_picker(),
+            "ui" => self.wizard_command(format!("/ui {rest}")),
             "memories" => {
                 let cmd = if rest.is_empty() {
                     "/memory".to_string()
@@ -537,6 +529,6 @@ mod tests {
         let pos = |n: &str| names.iter().position(|x| *x == n).unwrap();
         assert!(pos("model") < pos("ide") && pos("ide") < pos("permissions"));
         assert!(pos("status") < pos("title") && pos("title") < pos("statusline"));
-        assert_eq!(names[0], "model");
+        assert_eq!(names[..2], ["model", "ui"]);
     }
 }

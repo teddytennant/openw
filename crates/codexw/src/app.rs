@@ -144,6 +144,8 @@ pub struct App<W: Write> {
     /// A `/rewind <turn>` is in flight: its answer is read, not shown, and the session is
     /// loaded again once the turn ends.
     pub rewind: Option<RewindFlow>,
+    /// Bare `/ui` was sent: the listing that comes back opens the look picker.
+    pub look_pick: bool,
     /// Text for the composer once the session replay is on screen (a rewound prompt).
     pub prefill_after_load: Option<String>,
     /// `/raw`: history is written as plain source text the terminal wraps itself.
@@ -249,6 +251,7 @@ impl<W: Write> App<W> {
             git_read: None,
             theme_warning,
             rewind: None,
+            look_pick: false,
             prefill_after_load: None,
             raw_output: false,
             image_sends: Vec::new(),
@@ -359,7 +362,14 @@ impl<W: Write> App<W> {
             return;
         }
         if let Event::Notice { text, .. } = &ev {
-            if agent_core::switched_look(text).is_some_and(|l| l != "codex") {
+            if std::mem::take(&mut self.look_pick) {
+                // A notice that is not the listing (an error, say) is printed as usual.
+                if let Some(looks) = crate::ui::pickers::parse_looks(text) {
+                    self.show_look_picker(&looks);
+                    return;
+                }
+            }
+            if agent_core::switched_look(text).is_some_and(|l| l != crate::ui::pickers::THIS_LOOK) {
                 // `/ui <look>`: wizard saved it; leaving hands the terminal to that look
                 self.should_exit = true;
                 return;

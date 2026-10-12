@@ -587,3 +587,41 @@ fn a_paste_goes_to_the_picker_search_while_it_is_open() {
     h.draw();
     assert!(h.app.pane.composer.is_empty());
 }
+
+#[test]
+fn bare_ui_opens_a_picker_from_wizards_listing_and_a_pick_sends_the_switch() {
+    let mut h = harness(120, 36, 7);
+    ready(&mut h, catalog_config());
+    h.sent();
+    h.type_str("/ui");
+    h.key(KeyCode::Enter);
+    assert_eq!(h.sent(), vec![Request::Prompt("/ui".into())]);
+    h.app.on_backend(Event::Notice {
+        level: agent_core::NoticeLevel::Info,
+        text: "ui: wizard \u{2014} the house look (default)\n  \u{25cf} wizard  the house look (default)\n  \u{b7} codex  the codex layout\n  \u{b7} grok  the grok layout\nswitch with /ui <name>. a full look restarts into that UI".into(),
+    });
+    h.draw();
+    // Wizard marks its saved look; the picker marks the one on screen.
+    let rows = h.screen.rows();
+    let title = rows
+        .iter()
+        .position(|r| r == "  Select a Look")
+        .unwrap_or_else(|| panic!("no picker:\n{}", rows.join("\n")));
+    assert_eq!(
+        rows[title + 3],
+        "  1. wizard           the house look (default)"
+    );
+    assert_eq!(rows[title + 4], "› 2. codex (current)  the codex layout");
+    assert_eq!(rows[title + 5], "  3. grok             the grok layout");
+    // The listing itself is not printed above the picker.
+    assert!(!h.screen.full_text().contains("switch with /ui"));
+    h.key(KeyCode::Down);
+    h.key(KeyCode::Enter);
+    assert_eq!(h.sent(), vec![Request::Prompt("/ui grok".into())]);
+    assert!(!h.app.should_exit);
+    h.app.on_backend(Event::Notice {
+        level: agent_core::NoticeLevel::Info,
+        text: "saved [ui] skin = \"grok\". Quit this look to switch now.".into(),
+    });
+    assert!(h.app.should_exit);
+}

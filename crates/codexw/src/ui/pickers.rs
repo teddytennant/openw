@@ -146,7 +146,92 @@ pub fn model_params(cfg: &Config) -> SelectionParams {
     }
 }
 
+/// One row of wizard's `/ui` listing.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Look {
+    pub name: String,
+    pub description: String,
+}
+
+/// This look's name in wizard's list.
+pub const THIS_LOOK: &str = "codex";
+
+/// The looks in wizard's answer to bare `/ui`, or `None` when `text` is not that listing:
+///
+/// ```text
+/// ui: codex — the codex layout: >_ banner, › prompts, a bare composer
+///   · wizard  the house look: one rule, no boxes, nothing decorative (default)
+///   ● codex  the codex layout: >_ banner, › prompts, a bare composer
+/// switch with /ui <name>. a full look restarts into that UI
+/// ```
+pub fn parse_looks(text: &str) -> Option<Vec<Look>> {
+    if !text.trim_start().starts_with("ui:") {
+        return None;
+    }
+    let looks: Vec<Look> = text
+        .lines()
+        .filter_map(|l| {
+            // `●` marks the saved look, `·` the rest
+            let row = l.trim_start().strip_prefix(['●', '·'])?.trim();
+            let (name, description) = row.split_once(char::is_whitespace).unwrap_or((row, ""));
+            (!name.is_empty()).then(|| Look {
+                name: name.to_string(),
+                description: description.trim().to_string(),
+            })
+        })
+        .collect();
+    (!looks.is_empty()).then_some(looks)
+}
+
+/// `/ui`: the looks wizard lists. Enter on one runs `/ui <name>`. The row marked current is
+/// this look, whatever wizard has saved: started with a one-off override, the saved look is
+/// another one and has to stay pickable.
+pub fn look_params(looks: &[Look]) -> SelectionParams {
+    let items = looks
+        .iter()
+        .map(|l| {
+            let current = l.name == THIS_LOOK;
+            let action = if current {
+                ItemAction::None
+            } else {
+                ItemAction::Close(AppAction::Submit(format!("/ui {}", l.name)))
+            };
+            let mut it = SelectionItem::new(l.name.clone(), action);
+            if !l.description.is_empty() {
+                it.description = Some(l.description.clone());
+            }
+            it.is_current = current;
+            it
+        })
+        .collect();
+    SelectionParams {
+        title: Some("Select a Look".into()),
+        subtitle: Some("Wizard leaves this look and starts the one you pick.".into()),
+        items,
+        ..Default::default()
+    }
+}
+
 impl<W: Write> App<W> {
+    /// Bare `/ui`: ask wizard for its looks; `show_look_picker` opens on the answer.
+    pub fn open_look_picker(&mut self) {
+        if !self.ready {
+            self.push_cell(Box::new(InfoCell {
+                text: "Look selection is disabled until startup completes.".into(),
+                hint: None,
+            }));
+            return;
+        }
+        self.look_pick = true;
+        self.wizard_command("/ui".into());
+    }
+
+    pub fn show_look_picker(&mut self, looks: &[Look]) {
+        self.pane
+            .push_view(Box::new(ListSelectionView::new(look_params(looks))));
+        self.request_draw();
+    }
+
     /// `/model [id]`: the model picker, or switch straight to a named model.
     pub fn open_model_picker(&mut self) {
         self.open_model_picker_with("");
@@ -412,6 +497,41 @@ mod tests {
 
     fn key(c: KeyCode) -> KeyEvent {
         KeyEvent::new(c, KeyModifiers::NONE)
+    }
+
+    const LISTING: &str = "ui: codex \u{2014} the codex layout: >_ banner, \u{203a} prompts, a bare composer\n  \u{b7} wizard  the house look: one rule, no boxes, nothing decorative (default)\n  \u{25cf} codex  the codex layout: >_ banner, \u{203a} prompts, a bare composer\n  \u{b7} grok  the grok layout: a colored bar down every block, boxed composer\nswitch with /ui <name>. a full look restarts into that UI";
+
+    #[test]
+    fn look_listing_becomes_rows() {
+        let looks = parse_looks(LISTING).unwrap();
+        let names: Vec<&str> = looks.iter().map(|l| l.name.as_str()).collect();
+        assert_eq!(names, ["wizard", "codex", "grok"]);
+        assert_eq!(
+            looks[0].description,
+            "the house look: one rule, no boxes, nothing decorative (default)"
+        );
+        assert_eq!(parse_looks("saved [ui] skin = \"grok\"."), None);
+        assert_eq!(parse_looks("error: could not read config"), None);
+        assert_eq!(parse_looks("ui: nothing listed"), None);
+    }
+
+    #[test]
+    fn look_picker_starts_on_this_look_and_enter_sends_the_switch() {
+        // Wizard has `wizard` saved here; the row marked current is still codex.
+        let listing = LISTING
+            .replace('\u{25cf}', "\u{b7}")
+            .replacen('\u{b7}', "\u{25cf}", 1);
+        assert_eq!(parse_looks(&listing), parse_looks(LISTING));
+        let mut v = ListSelectionView::new(look_params(&parse_looks(LISTING).unwrap()));
+        assert_eq!(v.selected_index(), Some(1));
+        // The look already running: Enter only closes.
+        assert_eq!(v.handle_key(key(KeyCode::Enter)), ViewResult::Close);
+        let mut v = ListSelectionView::new(look_params(&parse_looks(LISTING).unwrap()));
+        v.handle_key(key(KeyCode::Down));
+        assert_eq!(
+            v.handle_key(key(KeyCode::Enter)),
+            ViewResult::CloseWith(AppAction::Submit("/ui grok".into()))
+        );
     }
 
     #[test]
