@@ -146,7 +146,7 @@ fn history_stays_in_scrollback_after_exit() {
     t.keys(&["C-c"]);
     t.wait("exit", |s| s.contains("[codexw exited 0]"));
     let full = t.full();
-    assert!(full.contains("Wizard (v0.147.0)"), "{full}");
+    assert!(full.contains(">_ Wizard"), "{full}");
     assert!(
         full.contains("Tip: This is wizard's codex look. Type /ui to see the others"),
         "{full}"
@@ -193,7 +193,7 @@ fn resize_replays_history_at_the_new_width() {
         width <= 80,
         "a row is {width} wide after the resize:\n{full}"
     );
-    assert_eq!(full.matches("Wizard (v0.147.0)").count(), 1, "{full}");
+    assert_eq!(full.matches(">_ Wizard").count(), 1, "{full}");
     assert_eq!(full.matches("› hello there").count(), 1, "{full}");
     // The tip re-wrapped for 80 columns: two rows instead of one.
     let tip_rows = full

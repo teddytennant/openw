@@ -8,7 +8,6 @@ use super::HistoryCell;
 use crate::wrap::{line_width, width_of};
 
 pub const SESSION_HEADER_MAX_INNER_WIDTH: usize = 56;
-pub const CODEX_VERSION: &str = "0.147.0";
 
 #[derive(Clone, Debug)]
 pub struct SessionHeaderCell {
@@ -20,6 +19,7 @@ pub struct SessionHeaderCell {
     pub directory: String,
     /// Full access and no approvals: adds the `permissions: YOLO mode` row.
     pub yolo: bool,
+    /// Wizard's version as the backend reports it. Empty until it is known: no `(v...)`.
     pub version: String,
 }
 
@@ -31,7 +31,7 @@ impl SessionHeaderCell {
             fast: false,
             directory: directory.to_string(),
             yolo: false,
-            version: CODEX_VERSION.to_string(),
+            version: String::new(),
         }
     }
 }
@@ -75,8 +75,13 @@ impl HistoryCell for SessionHeaderCell {
         } else {
             format!(" {}", self.effort)
         };
+        let title = if self.version.is_empty() {
+            "Wizard".to_string()
+        } else {
+            format!("Wizard (v{})", self.version)
+        };
         let mut lines = vec![
-            Line::from(format!("Wizard (v{})", self.version)),
+            Line::from(title),
             Line::from(format!("model: {model}{effort}")),
             Line::from(format!("directory: {}", self.directory)),
         ];
@@ -95,12 +100,12 @@ impl HistoryCell for SessionHeaderCell {
         let label_w = if self.yolo { 12 } else { 10 };
         let label = |s: &str| -> Span<'static> { Span::from(format!("{s:<label_w$} ")).dim() };
 
-        let title = Line::from(vec![
-            Span::from(">_ ").dim(),
-            Span::from("Wizard").bold(),
-            Span::from(" ").dim(),
-            Span::from(format!("(v{})", self.version)).dim(),
-        ]);
+        let mut title = vec![Span::from(">_ ").dim(), Span::from("Wizard").bold()];
+        if !self.version.is_empty() {
+            title.push(Span::from(" ").dim());
+            title.push(Span::from(format!("(v{})", self.version)).dim());
+        }
+        let title = Line::from(title);
         let mut model = vec![label("model:")];
         match &self.model {
             Some(m) => model.push(Span::from(m.clone())),
@@ -291,13 +296,22 @@ mod tests {
 
     #[test]
     fn header_matches_the_start_capture() {
-        let c = SessionHeaderCell::new(Some("gpt-5.5".into()), "", "~/proj");
+        let mut c = SessionHeaderCell::new(Some("gpt-5.5".into()), "", "~/proj");
+        c.version = "3.8.4".into();
         let t = text(&c.display_lines(120));
         assert_eq!(t[0], "╭───────────────────────────────────────╮");
-        assert_eq!(t[1], "│ >_ Wizard (v0.147.0)                  │");
+        assert_eq!(t[1], "│ >_ Wizard (v3.8.4)                    │");
         assert_eq!(t[3], "│ model:     gpt-5.5   /model to change │");
         assert_eq!(t[4], "│ directory: ~/proj                     │");
         assert_eq!(t.len(), 6);
+    }
+
+    #[test]
+    fn an_unknown_version_leaves_the_title_bare() {
+        let c = SessionHeaderCell::new(Some("gpt-5.5".into()), "", "~/proj");
+        let t = text(&c.display_lines(120));
+        assert_eq!(t[1], "│ >_ Wizard                             │");
+        assert_eq!(text(&c.raw_lines())[0], "Wizard");
     }
 
     #[test]

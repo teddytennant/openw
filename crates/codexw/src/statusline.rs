@@ -169,7 +169,7 @@ pub const STATUS_ITEMS: [Item; 26] = [
         "Remaining usage on the secondary usage limit (omitted when unavailable)",
         Limit,
     ),
-    it("codex-version", "Wizard application version", Metadata),
+    it("codex-version", "Wizard version", Metadata),
     it(
         "context-window-size",
         "Total context window size in tokens (omitted when unknown)",
@@ -263,7 +263,7 @@ pub const TITLE_ITEMS: [Item; 21] = [
         "Remaining usage on the secondary usage limit (omitted when unavailable)",
         Limit,
     ),
-    it("codex-version", "Wizard application version", Metadata),
+    it("codex-version", "Wizard version", Metadata),
     it(
         "used-tokens",
         "Total tokens used in session (omitted when zero)",
@@ -629,7 +629,7 @@ mod tests {
             project: Some("proj".into()),
             branch: Some("main".into()),
             run_state: "Ready".into(),
-            version: "0.147.0".into(),
+            version: "3.8.4".into(),
             ..Default::default()
         }
     }
@@ -701,7 +701,7 @@ mod tests {
             ("used-tokens", "1.5K used"),
             ("total-input-tokens", "1.2K in"),
             ("total-output-tokens", "300 out"),
-            ("codex-version", "0.147.0"),
+            ("codex-version", "3.8.4"),
             ("thread-id", "abc"),
             ("thread-title", "abc"),
             ("raw-output", "raw output"),

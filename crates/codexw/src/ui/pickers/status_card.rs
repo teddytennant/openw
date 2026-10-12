@@ -11,7 +11,6 @@ use ratatui::style::Stylize;
 use ratatui::text::{Line, Span};
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::app::VERSION;
 use crate::ui::HistoryCell;
 use crate::ui::session_header::{center_truncate_path, with_border};
 use crate::wrap::{line_width, width_of};
@@ -31,6 +30,8 @@ pub struct StatusData {
     pub mode: Option<String>,
     pub session: Option<String>,
     pub usage: Usage,
+    /// Wizard's version; empty leaves the `(v...)` off the title.
+    pub version: String,
 }
 
 #[derive(Debug)]
@@ -238,15 +239,15 @@ impl StatusData {
         let f = Fields::from_labels(&labels);
         let value_width = f.value_width(available);
 
-        let mut lines: Vec<Line<'static>> = vec![
-            Line::from(vec![
-                Span::from(format!("{INDENT}>_ ")).dim(),
-                Span::from("Wizard").bold(),
-                Span::from(" ").dim(),
-                Span::from(format!("(v{VERSION})")).dim(),
-            ]),
-            Line::default(),
+        let mut title = vec![
+            Span::from(format!("{INDENT}>_ ")).dim(),
+            Span::from("Wizard").bold(),
         ];
+        if !self.version.is_empty() {
+            title.push(Span::from(" ").dim());
+            title.push(Span::from(format!("(v{})", self.version)).dim());
+        }
+        let mut lines: Vec<Line<'static>> = vec![Line::from(title), Line::default()];
         lines.push(f.line("Model", self.model_spans()));
         if let Some(p) = &self.provider {
             lines.push(f.line("Model provider", vec![Span::from(p.clone())]));
@@ -354,6 +355,7 @@ mod tests {
             mode: Some("Default".into()),
             session: Some("01a10e01-6dff-7fd2-9469-c820aa5968b7".into()),
             usage: Usage::default(),
+            version: "3.8.4".into(),
         }
     }
 

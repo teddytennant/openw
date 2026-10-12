@@ -413,10 +413,7 @@ fn raw_off_brings_the_rich_cells_back() {
         t.contains("• Raw output mode on: transcript text is shown for clean terminal selection.")
     );
     assert!(t.contains("• Raw output mode off: rich transcript rendering restored."));
-    assert!(
-        t.contains("│ >_ Wizard (v0.147.0)"),
-        "the header box is back"
-    );
+    assert!(t.contains("│ >_ Wizard "), "the header box is back");
     assert!(t.contains("› go fake:markdown"));
     assert!(t.contains("• ## Summary") || t.contains("  I read src/lib.rs"));
 }

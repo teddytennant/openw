@@ -4,8 +4,10 @@
 //! (`reference/codex/raw/modes-120x36.typescript`): the placeholder frame, three unchanged
 //! redraws, the frame that inserts the session header and tip into the scrollback, three idle
 //! redraws, the typed draft, and the Enter that inserts the user message. The terminal-title writes are dropped from both sides. Documented differences:
-//! the model name is whatever the scripted config says (`gpt-5.5` here, as in the capture), and
-//! the title spinner that Codex runs during MCP startup does not exist in codexw.
+//! the model name is whatever the scripted config says (`gpt-5.5` here, as in the capture),
+//! the title spinner that Codex runs during MCP startup does not exist in codexw, and the
+//! placeholder frame has no `(v0.147.0)`: codexw shows wizard's version, which it only learns
+//! when the backend is ready, so that span is blanked in the fixture.
 
 mod common;
 
@@ -20,6 +22,8 @@ fn ready() -> Event {
         config: Config {
             model: "gpt-5.5".into(),
             effort: "default".into(),
+            // The capture's header carries Codex's own version in this spot.
+            backend: "wizard 0.147.0".into(),
             ..Default::default()
         },
     }

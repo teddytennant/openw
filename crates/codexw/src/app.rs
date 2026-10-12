@@ -31,7 +31,6 @@ use crate::ui::session_header::{DEFAULT_TIP, SessionHeaderCell, SessionInfoCell,
 use crate::ui::{AppAction, BoxedCell, HistoryCell, Overlay, OverlayResult};
 use crate::wrap::{WrapOpts, word_wrap_line};
 
-pub const VERSION: &str = "0.147.0";
 /// 120 frames per second at most.
 pub const MIN_FRAME_INTERVAL: Duration = Duration::from_nanos(8_333_334);
 pub const ANIMATION_INTERVAL: Duration = Duration::from_millis(32);
@@ -281,6 +280,27 @@ impl<W: Write> App<W> {
         display_path(&self.opts.cwd, self.home.as_deref())
     }
 
+    /// Wizard's version from the backend's `wizard 3.8.4`; empty when it has not said.
+    pub fn wizard_version(&self) -> String {
+        self.config
+            .backend
+            .strip_prefix("wizard ")
+            .unwrap_or_default()
+            .trim()
+            .to_string()
+    }
+
+    /// The session header as it stands now.
+    fn header_cell(&self) -> SessionHeaderCell {
+        let mut header = SessionHeaderCell::new(
+            Some(self.model_name()),
+            self.effort_label_for_header(),
+            &self.cwd_display(),
+        );
+        header.version = self.wizard_version();
+        header
+    }
+
     /// Short model name for the header and footer: `grok-4.6` from `xai-oauth/grok-4.6`.
     pub fn model_name(&self) -> String {
         let id = &self.config.model;
@@ -495,13 +515,8 @@ impl<W: Write> App<W> {
     /// Everything after the backend is up and any startup pick is settled: the header, the
     /// session switch summary, a replayed transcript and the first prompt.
     pub fn finish_ready(&mut self) {
-        let header = SessionHeaderCell::new(
-            Some(self.model_name()),
-            self.effort_label_for_header(),
-            &self.cwd_display(),
-        );
         let info = SessionInfoCell {
-            header,
+            header: self.header_cell(),
             tip: Some(TooltipCell::new(
                 self.opts.tip.as_deref().unwrap_or(DEFAULT_TIP),
             )),
@@ -1054,12 +1069,7 @@ impl<W: Write> App<W> {
         let _ = self.term.clear_scrollback_and_screen();
         self.has_emitted_history = false;
         self.replay_from = self.cells.len();
-        let header = SessionHeaderCell::new(
-            Some(self.model_name()),
-            self.effort_label_for_header(),
-            &self.cwd_display(),
-        );
-        self.push_cell(Box::new(header));
+        self.push_cell(Box::new(self.header_cell()));
     }
 
     fn clear_screen_for_new_chat(&mut self) {
@@ -1236,7 +1246,7 @@ impl<W: Write> App<W> {
             used_tokens: u.input_tokens.saturating_sub(u.cached_tokens) + u.output_tokens,
             input_tokens: u.input_tokens.saturating_sub(u.cached_tokens),
             output_tokens: u.output_tokens,
-            version: VERSION.into(),
+            version: self.wizard_version(),
             session_id: self.session_id.clone(),
             thread_title: self
                 .home
