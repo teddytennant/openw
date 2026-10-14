@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use agent_core::Request;
 use anyhow::{Context, Result, bail};
-use codexw::app::{self, App, AppOpts, Msg, VERSION};
+use codexw::app::{self, App, AppOpts, CODEX_VERSION, Msg, VERSION};
 use codexw::style::{ColorLevel, Palette, set_palette};
 use codexw::term::{modes, probe};
 use ratatui::layout::{Position, Size};
@@ -99,7 +99,11 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> 
         let mut value = |name: &str| it.next().ok_or_else(|| format!("{name} needs a value"));
         match a.as_str() {
             "-h" | "--help" => return Ok(Parsed::Exit(HELP.to_string())),
-            "-V" | "--version" => return Ok(Parsed::Exit(format!("codexw {VERSION}"))),
+            "-V" | "--version" => {
+                return Ok(Parsed::Exit(format!(
+                    "wizard-ui-codex {VERSION} (codex look {CODEX_VERSION})"
+                )));
+            }
             "-m" | "--model" => o.model = Some(value("--model")?),
             "-C" | "--cd" => cwd = Some(PathBuf::from(value("--cd")?)),
             "--no-alt-screen" => o.no_alt_screen = true,
@@ -297,7 +301,7 @@ mod tests {
     #[test]
     fn version_help_and_errors() {
         assert!(
-            matches!(parse_args(args(&["--version"])), Ok(Parsed::Exit(s)) if s.starts_with("codexw "))
+            matches!(parse_args(args(&["--version"])), Ok(Parsed::Exit(s)) if s.starts_with("wizard-ui-codex "))
         );
         assert!(matches!(parse_args(args(&["-h"])), Ok(Parsed::Exit(_))));
         assert!(parse_args(args(&["--bogus"])).is_err());

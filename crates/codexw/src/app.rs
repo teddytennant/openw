@@ -31,7 +31,8 @@ use crate::ui::session_header::{DEFAULT_TIP, SessionHeaderCell, SessionInfoCell,
 use crate::ui::{AppAction, BoxedCell, HistoryCell, Overlay, OverlayResult};
 use crate::wrap::{WrapOpts, word_wrap_line};
 
-pub const VERSION: &str = "0.147.0";
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const CODEX_VERSION: &str = "0.147.0";
 /// 120 frames per second at most.
 pub const MIN_FRAME_INTERVAL: Duration = Duration::from_nanos(8_333_334);
 pub const ANIMATION_INTERVAL: Duration = Duration::from_millis(32);

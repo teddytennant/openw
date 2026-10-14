@@ -414,7 +414,7 @@ fn raw_off_brings_the_rich_cells_back() {
     );
     assert!(t.contains("• Raw output mode off: rich transcript rendering restored."));
     assert!(
-        t.contains("│ >_ Wizard (v0.147.0)"),
+        t.contains(concat!("│ >_ Wizard (v", env!("CARGO_PKG_VERSION"), ")")),
         "the header box is back"
     );
     assert!(t.contains("› go fake:markdown"));

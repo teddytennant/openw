@@ -8,7 +8,6 @@ use super::HistoryCell;
 use crate::wrap::{line_width, width_of};
 
 pub const SESSION_HEADER_MAX_INNER_WIDTH: usize = 56;
-pub const CODEX_VERSION: &str = "0.147.0";
 
 #[derive(Clone, Debug)]
 pub struct SessionHeaderCell {
@@ -31,7 +30,7 @@ impl SessionHeaderCell {
             fast: false,
             directory: directory.to_string(),
             yolo: false,
-            version: CODEX_VERSION.to_string(),
+            version: crate::app::VERSION.to_string(),
         }
     }
 }
@@ -293,7 +292,9 @@ mod tests {
         let c = SessionHeaderCell::new(Some("gpt-5.5".into()), "", "~/proj");
         let t = text(&c.display_lines(120));
         assert_eq!(t[0], "╭───────────────────────────────────────╮");
-        assert_eq!(t[1], "│ >_ Wizard (v0.147.0)                  │");
+        let title = format!("│ >_ Wizard (v{})", crate::app::VERSION);
+        assert!(t[1].starts_with(&title) && t[1].ends_with('│'), "{}", t[1]);
+        assert_eq!(t[1].chars().count(), t[0].chars().count());
         assert_eq!(t[3], "│ model:     gpt-5.5   /model to change │");
         assert_eq!(t[4], "│ directory: ~/proj                     │");
         assert_eq!(t.len(), 6);
