@@ -77,6 +77,57 @@ TURN = [
     ('exit-summary', [('quit',), ('wait', 0.5), ('snap', '')]),
 ]
 
+P_COUNT = 'Count from 1 to 3000, one number per line. No tools.'
+P_PLAN = ('Plan adding the comment "// entry point" as the first line of main.rs. Do not read or '
+          'explore anything, I told you all you need. Write a two-line plan and present it for '
+          'approval right away.')
+
+# A turn stopped with Esc before any tool ran, and a prompt typed while a turn runs.
+TURN3 = [
+    ('interrupt', [('type', P_COUNT), ('keys', 'Enter'), ('wait', 2.0), ('fast_keys', 'Escape'),
+                   ('wait', 2.0), ('idle',), ('snap', '')]),
+    ('queue', [('type', P_COUNT), ('keys', 'Enter'), ('wait', 1.5), ('type', 'queued one'),
+               ('fast_keys', 'Enter'), ('wait', 0.8), ('raw_snap', ''), ('fast_keys', 'Escape'),
+               ('wait', 1.5), ('raw_snap', '-esc'), ('idle',)]),
+    # manual, accept edits, plan
+    ('plan', [('keys', 'BTab', 'BTab'), ('wait', 1.0), ('type', P_PLAN), ('keys', 'Enter'),
+              ('until', r'Ready to code', 120), ('wait', 2.0), ('snap', ''),
+              ('keys', 'Down'), ('snap', '-down'), ('keys', 'Escape'), ('idle',)]),
+]
+
+# Real wizard behind the look, answering from tools/fake_openai.py: the last word of each
+# prompt picks the fake model's answer. live.py checks these captures.
+LIVE = [
+    ('live-home', [('wait', 1.0), ('snap', '')]),
+    ('live-edit', [('type', 'please edit'), ('keys', 'Enter'), ('idle',), ('wait', 1.0), ('snap', '')]),
+    ('live-interrupt', [('type', 'please slow'), ('keys', 'Enter'), ('wait', 2.0),
+                        ('fast_keys', 'Escape'), ('wait', 1.0), ('idle',), ('snap', '')]),
+    ('live-queue', [('type', 'please slow'), ('keys', 'Enter'), ('wait', 1.5), ('type', 'queued one'),
+                    ('fast_keys', 'Enter'), ('wait', 1.0), ('raw_snap', ''), ('fast_keys', 'Escape'),
+                    ('wait', 1.0), ('idle',), ('snap', '-esc')]),
+    ('live-plan', [('type', '/plan'), ('keys', 'Enter'), ('wait', 1.5), ('type', 'please plan'),
+                   ('keys', 'Enter'), ('until', r'Ready to code', 30), ('wait', 0.5), ('snap', ''),
+                   ('keys', 'Down'), ('snap', '-down'), ('keys', 'Enter'), ('idle',), ('snap', '-kept'),
+                   ('type', '/plan'), ('keys', 'Enter'), ('wait', 1.5)]),
+    # two presses well inside a second: the second lands while wizard is still on the first
+    ('live-modes', [('fast_keys', 'BTab'), ('wait', 0.3), ('fast_keys', 'BTab'), ('wait', 3.0),
+                    ('snap', '-1'), ('type', 'say ok'), ('keys', 'Enter'), ('idle',), ('snap', '-turn'),
+                    ('type', '/status'), ('keys', 'Enter'), ('wait', 1.5), ('snap', '-status'),
+                    ('keys', 'Escape'), ('wait', 0.5)]),
+    ('live-resume', [('type', '/resume'), ('keys', 'Enter'), ('wait', 2.0), ('snap', ''),
+                     ('keys', 'Escape'), ('wait', 0.5)]),
+    ('live-search', [('keys', 'C-r'), ('wait', 1.0), ('snap', ''), ('keys', 'Escape'), ('wait', 0.5)]),
+    ('live-exit', [('quit',), ('wait', 0.5), ('snap', '')]),
+]
+
+# Wizard with no working provider: the session never starts.
+LIVE_FAIL = [
+    # a new session: Up brings back the last prompt of the one before
+    ('live-fail', [('wait', 2.0), ('snap', ''), ('keys', 'Up'), ('wait', 0.5), ('snap', '-up'),
+                   ('keys', 'Escape', 'Escape'), ('wait', 0.5), ('type', 'hello'), ('keys', 'Enter'), ('wait', 1.5),
+                   ('snap', '-typed'), ('quit',), ('wait', 0.5), ('snap', '-exit')]),
+]
+
 # The light theme, for the scenes that carry the most colour without a model call.
 LIGHT = [
     ('light-home', [('snap', '')]),
@@ -115,15 +166,17 @@ WIZARD = [
     ('wz-slash-filter', [('type', '/mo'), ('snap', ''), ('keys', 'C-c'), ('wait', 1.0)]),
     ('wz-modes', [('keys', 'BTab'), ('snap', '-1'), ('keys', 'BTab'), ('snap', '-2'),
                   ('keys', 'BTab'), ('snap', '-3'), ('keys', 'BTab'), ('snap', '-4')]),
+    # the reference opened help before the model picker, so its transcript had no /model yet
+    ('wz-help', [('type', '/help'), ('keys', 'Enter'), ('wait', 0.5), ('keys', 'Tab'),
+                 ('snap', '-commands'), ('keys', 'Escape'), ('wait', 0.5)]),
     ('wz-model', [('type', '/model'), ('keys', 'Enter'), ('wait', 0.5), ('snap', ''),
                   ('keys', 'Escape'), ('wait', 0.5)]),
     ('wz-status', [('type', '/status'), ('keys', 'Enter'), ('wait', 0.5), ('snap', ''),
                    ('keys', 'Escape'), ('wait', 0.5)]),
-    ('wz-help', [('type', '/help'), ('keys', 'Enter'), ('wait', 0.5), ('keys', 'Tab'),
-                 ('snap', '-commands'), ('keys', 'Escape'), ('wait', 0.5)]),
 ]
 
-GROUPS = {'static': STATIC, 'turn': TURN, 'light': LIGHT, 'turn2': TURN2, 'wizard': WIZARD}
+GROUPS = {'mention': [s for s in STATIC if s[0] == 'mention'], 'static': STATIC, 'turn': TURN, 'light': LIGHT, 'turn2': TURN2, 'turn3': TURN3,
+          'wizard': WIZARD, 'live': LIVE, 'live-fail': LIVE_FAIL}
 
 
 def tmux(*args, check=True):
@@ -223,7 +276,7 @@ class Pane:
 def run(target, cmd, cwd, size, group, out):
     w, h = (int(x) for x in size.split('x'))
     pane = Pane('%s-%s' % (target, size), w, h, cwd, cmd)
-    t = pane.wait_for(r'^❯|Yes, I trust this folder', 40)
+    t = pane.wait_for(r'^❯|Yes, I trust this folder|could not start', 40)
     if 'Yes, I trust this folder' in t:
         pane.keys('Down', 'Enter')
         pane.wait_for(r'^❯', 40)

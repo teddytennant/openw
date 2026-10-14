@@ -3,15 +3,32 @@
 
     mkreplay.py REF_DIR CWD OUT_DIR
 
-The slash commands, models and saved sessions are read off the 200x50 captures so the look is
-handed the same data the reference showed. The turn script repeats the two tiny turns the
-reference was put through: `echo hi`, then an edit of main.rs behind a permission prompt.
+CLAUDE DATA. The static, turn, turn2 and turn3 scripts hand the look what the reference
+showed: Claude Code's slash commands, model names, saved sessions, modes and permission
+prompts, read off the captures. That is only so the pixel layout can be compared cell by
+cell. It says nothing about how the look handles Wizard's own data; the wizard-* scripts
+(from a recorded `wizard acp` session) and live.py (real wizard) cover that.
+
+The version the replay reports is the one a real wizard reported in that recorded session;
+OUT_DIR/version.txt holds it for compare.py.
 """
 import json, os, re, sys, time
 
 ANSI = re.compile(r'\x1b\[[0-9;]*m|\x1b\][^\x07\x1b]*(\x07|\x1b\\)')
-# The wizard the look is told it talks to; the header and /status must show this.
-WIZARD_VERSION = '3.8.10'
+HERE = os.path.dirname(os.path.abspath(__file__))
+RECORDED = os.path.join(HERE, '..', '..', 'backend-wizard', 'tests', 'fixtures', 'new_session.jsonl')
+
+
+def recorded_version():
+    """agentInfo.version from the recorded wizard's initialize answer."""
+    for line in open(RECORDED, encoding='utf-8'):
+        v = json.loads(line)['msg'].get('result', {})
+        if isinstance(v, dict) and 'agentInfo' in v:
+            return v['agentInfo']['version']
+    raise SystemExit('no agentInfo.version in ' + RECORDED)
+
+
+WIZARD_VERSION = recorded_version()
 
 
 def rows(ref, name, size='200x50'):
@@ -91,13 +108,19 @@ def sessions(ref, cwd, now, size):
                 'id': (title if is_id else '%08x' % (i * 2654435761 % 2**32)) + '-0000-4000-8000-000000000000',
                 'title': '' if is_id else title,
                 'cwd': cwd,
-                'updated': now - int(m.group(1)) * unit[m.group(2)] - 2,
+                # seconds before the replay reads it, so the age is the same when the panel opens
+                'updated': -int(m.group(1)) * unit[m.group(2)] - 2,
+                'bytes': size_of(lines[i + 1]),
             })
-    # older sessions the window never reaches, so the count and the arrow show as they do there
-    for n in range(24):
-        out.append({'id': '%08x-0000-4000-8000-000000000000' % (0x5e55 + n), 'title': 'older session %d' % n,
-                    'cwd': cwd, 'updated': now - 40 * 86400 - n})
     return out
+
+
+def size_of(meta):
+    """`1 minute ago · HEAD · 3.2KB` -> a byte count that prints as 3.2KB."""
+    m = re.search(r' · ([0-9.]+)([KMG]?)B\s*$', meta)
+    if not m:
+        return 0
+    return int(float(m.group(1)) * {'': 1, 'K': 1024, 'M': 1024 ** 2, 'G': 1024 ** 3}[m.group(2)])
 
 
 def ev(e):
@@ -130,12 +153,13 @@ def head(ref, cwd, size):
     return [
         ev({'Ready': {'session_id': '0191b6f0-3c1a-7a52-9a0e-6d3e9b2f1c44', 'config': config}}),
         ev({'Commands': cmds}),
-        json.dumps({'sessions': sessions(ref, cwd, int(time.time()), size)}, ensure_ascii=False),
+        json.dumps({'sessions': [{k: v for k, v in s.items() if k != 'bytes'}
+                                 for s in sessions(ref, cwd, int(time.time()), size)]}, ensure_ascii=False),
     ]
 
 
-def tool(id_, kind, title, inp, status, output=None, diff=None):
-    return ev({'Tool': {'id': id_, 'name': kind, 'kind': kind, 'title': title, 'input': inp,
+def tool(id_, kind, title, inp, status, output=None, diff=None, name=None):
+    return ev({'Tool': {'id': id_, 'name': name or kind, 'kind': kind, 'title': title, 'input': inp,
                         'status': status, 'output': output, 'diff': diff, 'parent_id': None}})
 
 
@@ -240,10 +264,8 @@ def turn2(ref, cwd, size):
 
 def wizard_head(cwd):
     """Wizard's own models, efforts, modes and commands, from a recorded `wizard acp` session."""
-    here = os.path.dirname(os.path.abspath(__file__))
-    fixture = os.path.join(here, '..', '..', 'backend-wizard', 'tests', 'fixtures', 'new_session.jsonl')
     options, commands = [], []
-    for line in open(fixture, encoding='utf-8'):
+    for line in open(RECORDED, encoding='utf-8'):
         msg = json.loads(line)['msg']
         res = msg.get('result')
         if isinstance(res, dict) and 'configOptions' in res:
@@ -272,14 +294,114 @@ def wizard_head(cwd):
     ]
 
 
+def thinking(ref, size):
+    """The queued prompt's turn shows `thinking` in the reference's spinner."""
+    return any('· thinking' in l for l in rows(ref, 'queue-esc', size))
+
+
+def counted(ref, scene, size):
+    """The count as far as the reference got before Esc, as the model streamed it."""
+    lines = rows(ref, scene, size)
+    at = [i for i, l in enumerate(lines) if re.fullmatch(r'[● ] *\d+', l)]
+    top = max(int(lines[i][1:]) for i in at) if at else 200
+    # the model put a blank line between the numbers when the reference shows one
+    gap = '\n\n' if len(at) > 1 and at[1] - at[0] == 2 else '\n'
+    return gap.join(str(n) for n in range(1, top + 1))
+
+
+def turn3(ref, cwd, size):
+    """A count stopped with Esc, a prompt queued behind a count, then a plan put up for approval."""
+    wait = lambda what: json.dumps({'await': what})
+    sleep = lambda ms: json.dumps({'sleep': ms})
+    end = ev({'TurnEnd': 'end_turn'})
+    plan = plan_text(ref, size)
+    return [
+        wait('prompt'), ev('TurnStart'), sleep(1000), ev({'TextDelta': counted(ref, 'interrupt', size)}),
+        wait('cancel'),
+        wait('prompt'), ev('TurnStart'), sleep(800), ev({'TextDelta': counted(ref, 'queue', size)}),
+        wait('cancel'),
+        # the queued prompt's own turn has not answered yet when the reference is captured;
+        # at some sizes it was already thinking
+        wait('prompt'), ev('TurnStart')] + ([ev({'ThoughtDelta': 'Counting.'})] if thinking(ref, size) else []) + [
+        sleep(4000), ev({'TextDelta': 'ok'}), end,
+        wait('prompt'), ev('TurnStart'), sleep(1500),
+        tool('x1', 'other', 'exit_plan', {'plan': plan}, 'running', name='exit_plan'),
+        ev({'Permission': {'id': 'plan1', 'tool': 'exit_plan', 'kind': 'other', 'title': 'Ready to code?',
+                           'input': {'plan': plan}, 'diff': None, 'rule': ''}}),
+        wait('decide'),
+        tool('x1', 'other', 'exit_plan', {'plan': plan}, 'failed', 'plan rejected', name='exit_plan'), end,
+    ]
+
+
+def plan_text(ref, size):
+    """The plan the reference showed between its dashed rules, back as markdown: a bold row
+    was a heading, a run in the code colour was `code`."""
+    sys.path.insert(0, HERE)
+    from cells import parse
+    path = os.path.join(ref, 'plan-%s.ansi' % size)
+    if not os.path.exists(path):
+        return '1. Add `// entry point` as the first line of main.rs.\n2. Save the file.'
+    inside, out = False, []
+    for row in parse(open(path, encoding='utf-8').read()):
+        text = ''.join(c for c, _ in row).rstrip()
+        if text.strip().startswith('╌'):
+            if inside:
+                break
+            inside = True
+            continue
+        if not inside:
+            continue
+        # the plan ran past the pane: the reference shows ↓ and no closing rule. The rest is
+        # off its screen, so a line stands in for it and the look has to cut it the same way.
+        if text.strip().startswith('─'):
+            out.append('3. The rest of the plan, below the reference\'s screen.')
+            break
+        cut = text.endswith('↓')
+        if cut:
+            row = [(c, k) for c, k in row][:len(text) - 1]
+        cells = [(c, k) for c, k in row if c][3:]
+        body = ''.join(c for c, _ in cells).rstrip()
+        if not body:
+            out.append('')
+            continue
+        if all(k[2] for c, k in cells[:len(body)] if c != ' '):
+            # bold, italic and underlined is a top heading, bold alone the next level
+            top = all(k[4] and k[5] for c, k in cells[:len(body)] if c != ' ')
+            out.append(('# ' if top else '## ') + body)
+            continue
+        line, code = '', False
+        for c, k in cells[:len(body)]:
+            is_code = str(k[0]) == '153'
+            if is_code != code:
+                line += '`'
+                code = is_code
+            line += c
+        out.append(line + ('`' if code else ''))
+    # a wrapped row carries on the line before it
+    md = []
+    for l in out:
+        if md and l.startswith('   ') and md[-1]:
+            md[-1] += ' ' + l.strip()
+        else:
+            md.append(l)
+    return '\n'.join(md).strip()
+
+
 def main():
     ref, cwd, out = sys.argv[1:4]
     os.makedirs(out, exist_ok=True)
+    open(os.path.join(out, 'version.txt'), 'w').write(WIZARD_VERSION + '\n')
+    # wizard's session files, as big as the reference said, for the sizes the picker shows
+    with open(os.path.join(out, 'session-files.tsv'), 'w') as f:
+        for s in sessions(ref, cwd, 0, '200x50'):
+            if s['bytes']:
+                f.write('%s\t%d\n' % (s['id'], s['bytes']))
     for size in ('80x24', '120x40', '200x50'):
         h = head(ref, cwd, size)
         open(os.path.join(out, 'static-%s.jsonl' % size), 'w', encoding='utf-8').write('\n'.join(h) + '\n')
         script = h + turn(cwd, find_command(ref, cwd, size))
         open(os.path.join(out, 'turn2-%s.jsonl' % size), 'w', encoding='utf-8').write('\n'.join(h + turn2(ref, cwd, size)) + '\n')
+        open(os.path.join(out, 'turn3-%s.jsonl' % size), 'w', encoding='utf-8').write('\n'.join(h + turn3(ref, cwd, size)) + '\n')
         open(os.path.join(out, 'wizard-%s.jsonl' % size), 'w', encoding='utf-8').write('\n'.join(wizard_head(cwd)) + '\n')
         open(os.path.join(out, 'turn-%s.jsonl' % size), 'w', encoding='utf-8').write('\n'.join(script) + '\n')
 
