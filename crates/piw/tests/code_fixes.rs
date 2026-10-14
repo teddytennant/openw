@@ -69,7 +69,7 @@ fn the_exit_epilogue_carries_no_control_bytes() {
     assert_no_controls(&out);
     assert!(out.contains("P_x"), "the text itself is still shown");
     assert!(
-        out.contains("piw --session '"),
+        out.contains("wizard-ui-pi --session '"),
         "an odd id is quoted: {out:?}"
     );
 }

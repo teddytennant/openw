@@ -2301,7 +2301,7 @@ impl App {
             out.push_str(&ui::ansi_line(&Line::from(vec![
                 ui::span("To resume this session:", dim),
                 ratatui::text::Span::raw(format!(
-                    " piw --session {}",
+                    " wizard-ui-pi --session {}",
                     tuikit::width::shell_word(&self.transcript.session_id)
                 )),
             ])));

@@ -505,13 +505,13 @@ fn rename_with_an_argument_prints_the_confirmation_and_names_the_exit_hint() {
     h.draw();
     let t = h.screen.full_text();
     assert!(
-        t.contains("• Session renamed to my-thread. To resume this session run codexw resume, then select my-thread (s1)"),
+        t.contains("• Session renamed to my-thread. To resume this session run wizard-ui-codex resume, then select my-thread (s1)"),
         "{t}"
     );
     let lines = h.app.exit_lines(false);
     assert_eq!(
         lines,
-        vec!["To continue this session, run codexw resume, then select my-thread (s1)"]
+        vec!["To continue this session, run wizard-ui-codex resume, then select my-thread (s1)"]
     );
     let _ = std::fs::remove_dir_all(home);
 }

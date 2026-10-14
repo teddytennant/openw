@@ -219,7 +219,7 @@ fn exit_transcript_has_the_resume_hint() {
     assert!(
         plain
             .trim_end()
-            .ends_with("To resume this session: piw --session ses_1234567890"),
+            .ends_with("To resume this session: wizard-ui-pi --session ses_1234567890"),
         "{plain}"
     );
     assert!(out.contains("\r\n"));

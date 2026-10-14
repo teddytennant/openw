@@ -42,8 +42,8 @@ pub fn set(home: &str, id: &str, name: &str) -> std::io::Result<()> {
 /// `codexw resume, then select my-thread (<uuid>)`, or `codexw resume <uuid>` when unnamed.
 pub fn resume_hint(name: Option<&str>, id: &str) -> String {
     match name {
-        Some(n) => format!("codexw resume, then select {n} ({id})"),
-        None => format!("codexw resume {id}"),
+        Some(n) => format!("wizard-ui-codex resume, then select {n} ({id})"),
+        None => format!("wizard-ui-codex resume {id}"),
     }
 }
 
@@ -62,9 +62,9 @@ mod tests {
         assert_eq!(id_for(h, "other").as_deref(), Some("b"));
         assert_eq!(
             resume_hint(Some("my-thread"), "a"),
-            "codexw resume, then select my-thread (a)"
+            "wizard-ui-codex resume, then select my-thread (a)"
         );
-        assert_eq!(resume_hint(None, "a"), "codexw resume a");
+        assert_eq!(resume_hint(None, "a"), "wizard-ui-codex resume a");
         let _ = std::fs::remove_dir_all(home);
     }
 }

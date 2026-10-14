@@ -104,7 +104,7 @@ fn rows_are_committed_once() {
 fn minimal_has_its_own_exit_hint_and_no_summary() {
     let mut h = minimal();
     let tail = h.app.epilogue(120);
-    assert!(tail.contains("grokw --minimal --resume"), "{tail}");
+    assert!(tail.contains("wizard-ui-grok --minimal --resume"), "{tail}");
     assert!(!tail.contains("> "), "{tail}");
     h.app.opts.screen = ScreenMode::Fullscreen;
     assert!(!h.app.epilogue(120).contains("--minimal"));

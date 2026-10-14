@@ -83,7 +83,7 @@ fn the_resume_hint_is_faint_and_uncoloured() {
     h.turn("hi", "Hello.");
     let out = h.app.epilogue(120);
     assert!(
-        out.contains("\x1b[2mTo resume this session:\x1b[0m piw --session"),
+        out.contains("\x1b[2mTo resume this session:\x1b[0m wizard-ui-pi --session"),
         "{out:?}"
     );
 }

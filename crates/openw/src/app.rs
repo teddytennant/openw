@@ -2496,7 +2496,7 @@ impl App {
         ));
         if !self.transcript.session_id.is_empty() {
             s.push_str(&format!(
-                "  \x1b[90mContinue  \x1b[0m\x1b[1mopenw -s {}\x1b[0m\n",
+                "  \x1b[90mContinue  \x1b[0m\x1b[1mwizard-ui-opencode -s {}\x1b[0m\n",
                 shell_word(&self.transcript.session_id)
             ));
         }

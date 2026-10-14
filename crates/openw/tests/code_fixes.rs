@@ -271,14 +271,17 @@ fn the_resume_hint_quotes_an_odd_session_id() {
     h.app.send_prompt("hello".into());
     h.app.transcript.session_id = "a b;rm -rf ~'\x1b]0;x\x07".into();
     let e = h.app.epilogue().unwrap();
-    assert!(e.contains("openw -s 'a b;rm -rf ~'\\''"), "{e:?}");
+    assert!(
+        e.contains("wizard-ui-opencode -s 'a b;rm -rf ~'\\''"),
+        "{e:?}"
+    );
     assert!(!e.contains('\x07'));
     h.app.transcript.session_id = "2026-07-13T11-30-22".into();
     assert!(h
         .app
         .epilogue()
         .unwrap()
-        .contains("openw -s 2026-07-13T11-30-22\x1b"));
+        .contains("wizard-ui-opencode -s 2026-07-13T11-30-22\x1b"));
 }
 
 fn git_repo(name: &str) -> PathBuf {

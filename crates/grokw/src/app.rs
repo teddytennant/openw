@@ -1002,7 +1002,7 @@ impl App {
         }
         out.push_str("Resume this session with:\n");
         let flag = if minimal { "--minimal " } else { "" };
-        out.push_str(&format!("  grokw {flag}--resume {id}\n"));
+        out.push_str(&format!("  wizard-ui-grok {flag}--resume {id}\n"));
         out
     }
 }

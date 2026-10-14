@@ -149,7 +149,7 @@ fn history_stays_in_scrollback_after_exit() {
     assert!(full.contains("Wizard (v0.0)"), "{full}");
     assert!(full.contains("› hello there"), "{full}");
     assert!(
-        full.contains("To continue this session, run codexw resume mock-1"),
+        full.contains("To continue this session, run wizard-ui-codex resume mock-1"),
         "{full}"
     );
     // The summary sits directly under the last history row, with no composer left behind.
