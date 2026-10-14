@@ -154,6 +154,12 @@ pub fn rpc_error_text(err: &Value) -> String {
     let data = match err.get("data") {
         Some(Value::String(s)) => s.clone(),
         Some(Value::Null) | None => String::new(),
+        // structured detail: its own message if it has one, never the raw JSON
+        Some(Value::Object(o)) => ["message", "detail", "error", "reason"]
+            .iter()
+            .find_map(|k| o.get(*k).and_then(Value::as_str))
+            .unwrap_or("")
+            .to_string(),
         Some(v) => v.to_string(),
     };
     match (msg.is_empty(), data.is_empty()) {

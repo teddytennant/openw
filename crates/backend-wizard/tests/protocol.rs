@@ -474,3 +474,14 @@ fn two_user_messages_in_a_row_replay_as_two() {
         ]
     );
 }
+
+#[test]
+fn error_detail_is_never_raw_json() {
+    let e = json!({"code": -32002, "message": "Resource not found", "data": {"uri": "s9", "message": "no session s9"}});
+    assert_eq!(
+        wire::rpc_error_text(&e),
+        "Resource not found: no session s9"
+    );
+    let e = json!({"code": -32002, "message": "Resource not found", "data": {"uri": "s9"}});
+    assert_eq!(wire::rpc_error_text(&e), "Resource not found");
+}
