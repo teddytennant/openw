@@ -44,6 +44,9 @@ def main():
     ap.add_argument('--cwd', required=True)
     ap.add_argument('--work', required=True)
     ap.add_argument('--sizes', default='120x40')
+    ap.add_argument('--ref', help='reference captures: the shared scenes (x-*) run against their data')
+    ap.add_argument('--shared-only', action='store_true', help='run only the shared scenes')
+    ap.add_argument('--xcwd', help='the project the shared scenes run in (default: --cwd)')
     a = ap.parse_args()
     out = os.path.join(a.work, 'live')
     os.makedirs(out, exist_ok=True)
@@ -71,7 +74,7 @@ def main():
         os.path.join(a.work, 'live-state'), bindir)
     fails = []
     try:
-        for size in a.sizes.split(','):
+        for size in ([] if a.shared_only else a.sizes.split(',')):
             main_rs = 'fn main() {\n    println!("hello");\n}\n'
             with open(os.path.join(a.cwd, 'main.rs'), 'w') as f:
                 f.write(main_rs)
@@ -92,6 +95,8 @@ def main():
             for d in ('live-state',):
                 shutil.rmtree(os.path.join(a.work, d), ignore_errors=True)
             shutil.rmtree(os.path.join(good, '.wizard', 'sessions'), ignore_errors=True)
+        if a.ref and os.path.exists(os.path.join(a.ref, 'x-badedit-120x40.ansi')):
+            shared(a, env, out, port, log)
     finally:
         fake.kill()
         fake.wait()
@@ -99,6 +104,111 @@ def main():
         print('live check failed: ' + f)
     print('live checks: %d failed' % len(fails))
     sys.exit(1 if fails else 0)
+
+
+def rows_of(path):
+    sys.path.insert(0, HERE)
+    from cells import parse
+    return parse(open(path, encoding='utf-8').read())
+
+
+def code_markdown(cells):
+    """A row's text with runs in the code colour back in backticks."""
+    out, code = '', False
+    for c, k in cells:
+        is_code = str(k[0]) == '153'
+        if is_code != code and c.strip():
+            out += '`'
+            code = is_code
+        out += c
+    return out.rstrip() + ('`' if code else '')
+
+
+def shared_data(ref, size):
+    """The reference's /btw answer and rejected plan, for the fake server to give back."""
+    data = {}
+    rows = rows_of(os.path.join(ref, 'x-btw-%s.ansi' % size))
+    texts = [''.join(c for c, _ in r).rstrip() for r in rows]
+    at = next((i for i, t in enumerate(texts) if t.lstrip().startswith('/btw ')), None)
+    end = next((i for i, t in enumerate(texts) if 'to close' in t), None)
+    if at is not None and end is not None:
+        data['btw'] = '\n'.join(t.strip() for t in texts[at + 1:end] if t.strip())
+    # what the model said after the failed edit: the last reply before the done line
+    rows = rows_of(os.path.join(ref, 'x-badedit-%s.ansi' % size))
+    texts = [''.join(c for c, _ in r).rstrip() for r in rows]
+    done = next((i for i in range(len(texts) - 1, -1, -1) if texts[i].startswith('✻ ')), None)
+    start = next((i for i in range(done or 0, -1, -1) if texts[i].startswith('● ')), None) if done else None
+    if start is not None:
+        reply = [code_markdown([x for x in rows[i] if x[0]][2:]) for i in range(start, done) if texts[i].strip()]
+        data['badedit-reply'] = ' '.join(x.strip() for x in reply)
+    rows = rows_of(os.path.join(ref, 'x-planesc-%s.ansi' % size))
+    plan, inside = [], False
+    for r in rows:
+        t = ''.join(c for c, _ in r).rstrip()
+        if t.strip().startswith('╭'):
+            inside = True
+            continue
+        if t.strip().startswith('╰'):
+            break
+        if inside:
+            cells = [x for x in r if x[0]][7:]
+            line = code_markdown(cells).rstrip().rstrip('│').rstrip()
+            plan.append(line)
+    if plan:
+        data['plan'] = '\n'.join(plan).strip()
+    return data
+
+
+def seed_history(ref, size, path, cwd):
+    texts = [''.join(c for c, _ in r).rstrip() for r in rows_of(os.path.join(ref, 'x-ctrlr-%s.ansi' % size))]
+    unit = {'s': 1, 'm': 60, 'h': 3600, 'd': 86400}
+    mine = ('Use the Edit tool', '/btw ', '/plan', 'Plan adding the comment')
+    now = int(time.time())
+    seeded = []
+    for t in texts:
+        m = re.match(r'^  [❯↑↓ ] (\d+)([smhd]) ago\s+(.*?)\s{2,}[│╭╰]', t + '  │')
+        if not m or m.group(3).startswith(mine):
+            continue
+        text = m.group(3)
+        # a cut entry is cut again the same way: make it long enough
+        if text.endswith('…'):
+            text = text[:-1] + ' and the rest of the prompt carries on past the list'
+        seeded.append({'text': text, 'at': now - int(m.group(1)) * unit[m.group(2)] - 5, 'cwd': cwd})
+    # the list showed ↑: there were older ones above it
+    if seeded:
+        oldest = seeded[0]['at']
+        seeded = [{'text': 'an older prompt %d' % n, 'at': oldest - 60 * (n + 1), 'cwd': cwd}
+                  for n in range(3, 0, -1)] + seeded
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'w') as f:
+        for e in seeded:
+            f.write(json.dumps(e) + '\n')
+
+
+def shared(a, env, out, port, log):
+    """The shared scenes through real wizard, answered with the reference's own data, then
+    compared with the reference cell by cell."""
+    size = '120x40'
+    for name, text in shared_data(a.ref, size).items():
+        with open(os.path.join(os.path.dirname(log), 'shared-%s.txt' % name), 'w') as f:
+            f.write(text)
+    h = os.path.join(a.work, 'live-home-shared')
+    # the reference runs at medium effort; so does this wizard
+    home(h, 'model = "fake-model"\nactive_provider = "fake"\nreasoning_effort = "medium"\n\n[[providers]]\n'
+            'name = "fake"\nkind = "openai"\nbase_url = "http://127.0.0.1:%d/v1"\nmodel = "fake-model"\n' % port)
+    xcwd = a.xcwd or a.cwd
+    os.makedirs(os.path.join(xcwd, '.wizard'), exist_ok=True)
+    with open(os.path.join(xcwd, 'main.rs'), 'w') as f:
+        f.write('fn main() {\n    println!("hello");\n}\n')
+    # ctrl+r lists every prompt the reference ever sent from here; the earlier ones go into this
+    # wizard's history file, at the ages the reference showed, so both lists hold the same
+    seed_history(a.ref, size, os.path.join(a.work, 'live-state', 'history.jsonl'), xcwd)
+    with open(os.path.join(os.path.dirname(log), 'shared-cwd.txt'), 'w') as f:
+        f.write(xcwd)
+    for group in ('shared', 'shared-resume'):
+        subprocess.run([sys.executable, os.path.join(HERE, 'drive.py'), '--target', 'look',
+                        '--cwd', xcwd, '--out', out, '--group', group, '--sizes', size,
+                        '--cmd', '%s HOME=%s wizard' % (env, h)], check=True, stdout=subprocess.DEVNULL)
 
 
 def footer_mode(t):
@@ -194,16 +304,24 @@ def checks(out, size, version, log, cwd, history):
     check(fails, tag('live-plan-tab'), 'read_file' in offered and 'exit_plan' in offered,
           'plan mode reached by shift+tab offers read tools and exit_plan (%s)' % offered)
 
-    before = footer_mode(text(p('live-queue-mode')))
+    check(fails, tag('live-burst'), footer_mode(text(p('live-burst'))) == 'chat',
+          'two shift+tabs from genie end in chat')
+    offered = requests(log, 'now write')[-1]
+    check(fails, tag('live-burst'), sorted(offered) == ['web_fetch', 'web_search'],
+          'a prompt sent in the same burst as the presses ran in chat (offered %s)' % offered)
+    check(fails, tag('live-burst'), not os.path.exists(os.path.join(cwd, 'w.txt')),
+          'nothing was written by a prompt sent mid-switch')
+
+    during = footer_mode(text(p('live-queue-mode')))
     after = footer_mode(text(p('live-queue-mode-done')))
-    check(fails, tag('live-queue-mode'), before == 'genie',
-          'while the turn runs the footer keeps the confirmed mode (%r)' % before)
-    check(fails, tag('live-queue-mode'), after == 'chat', 'then shows the mode wizard switched to (%r)' % after)
+    check(fails, tag('live-queue-mode'), during == 'plan',
+          'the footer shows the pressed mode at once, as the reference does (%r)' % during)
+    check(fails, tag('live-queue-mode'), after == 'plan', 'and wizard is in it afterwards (%r)' % after)
     offered = requests(log, 'please write')[-1]
-    check(fails, tag('live-queue-mode'), sorted(offered) == ['web_fetch', 'web_search'],
-          'the queued prompt ran in the mode changed before it (offered %s)' % offered)
+    check(fails, tag('live-queue-mode'), 'exit_plan' in offered and 'read_file' in offered,
+          'the queued prompt ran in plan mode, changed before it (offered %s)' % offered)
     check(fails, tag('live-queue-mode'), not os.path.exists(os.path.join(cwd, 'w.txt')),
-          'nothing was written from chat mode')
+          'nothing was written from plan mode')
 
     t = text(p('live-modes-dismissed'))
     rows = re.findall(r'^❯(.*)$', t, re.M)
@@ -226,10 +344,12 @@ def checks(out, size, version, log, cwd, history):
           'a resumed failed edit shows as failed')
 
     t = text(p('live-resume'))
+    check(fails, tag('live-resume'), 'No conversations found in this project.' in t,
+          'the picker leaves out the session it is open in')
+    t = text(p('live-resumed-list'))
     ages = re.findall(r'(\d+) (second|minute|hour)s? ago · \S+ · [0-9.]+[KMG]?B', t)
-    check(fails, tag('live-resume'), ages, 'sessions show their age, branch and size')
-    # the session was last written by /status, a few seconds before the picker opened
-    check(fails, tag('live-resume'), any(u != 'second' or int(n) >= 3 for n, u in ages),
+    check(fails, tag('live-resumed'), ages, 'sessions show their age, branch and size')
+    check(fails, tag('live-resumed'), any(u != 'second' or int(n) >= 3 for n, u in ages),
           'the clock moves: the session is older than a second or two (%s)' % ages)
 
     t = text(p('live-search'))

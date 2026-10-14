@@ -12,6 +12,21 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 18999
 CWD = sys.argv[2] if len(sys.argv) > 2 else '.'
 LOG = open(sys.argv[3] if len(sys.argv) > 3 else '/dev/null', 'a')
+# answers taken from the reference captures, read when asked: `<log dir>/shared-<name>.txt`
+import os
+SHARED_DIR = os.path.dirname(sys.argv[3]) if len(sys.argv) > 3 else None
+
+
+def cwd():
+    """The project the paths point into: the shared scenes run in a project of their own."""
+    return shared('cwd', CWD).strip()
+
+
+def shared(name, default):
+    try:
+        return open(os.path.join(SHARED_DIR, 'shared-%s.txt' % name), encoding='utf-8').read()
+    except (OSError, TypeError):
+        return default
 
 MD = ('Here is the summary.\n\n| file | lines |\n|------|-------|\n| a.rs | 3 |\n| b.rs | 120 |\n\n'
       'Use `cargo build` to build **`src/`**, see [Docs](https://example.com/docs).\n\n'
@@ -88,8 +103,16 @@ class H(BaseHTTPRequestHandler):
         self.end_headers()
         self.chunk({'role': 'assistant'})
         key = u.strip().split()[-1] if u.strip() else ''
+        # the prompts shared with the reference are told apart by their text; what to answer
+        # comes from the reference itself (live.py writes it to files beside the log)
+        if 'not in the file' in u:
+            key = 'badedit'
+        elif 'what is 2+2' in u:
+            key = 'btw'
+        elif 'Plan adding the comment' in u:
+            key = 'plan'
         if last.get('role') == 'tool':
-            self.text('done')
+            self.text(shared('badedit-reply', 'done') if key == 'badedit' else 'done')
             fin = 'stop'
         elif key == 'md':
             self.text(MD, 0.05)
@@ -109,20 +132,23 @@ class H(BaseHTTPRequestHandler):
             self.tool(pick(tools, 'execute', 'bash'), {'command': 'git init -q && echo ok', 'description': 'Initialize a git repository'})
             fin = 'tool_calls'
         elif key == 'read':
-            self.tool(pick(tools, 'read_file', 'read', 'view'), {'path': CWD + '/main.rs'})
+            self.tool(pick(tools, 'read_file', 'read', 'view'), {'path': cwd() + '/main.rs'})
             fin = 'tool_calls'
         elif key == 'edit':
-            self.tool(pick(tools, 'edit_file', 'edit', 'str_replace'), {'path': CWD + '/main.rs', 'old_string': 'hello', 'new_string': 'hi', 'old': 'hello', 'new': 'hi'})
+            self.tool(pick(tools, 'edit_file', 'edit', 'str_replace'), {'path': cwd() + '/main.rs', 'old_string': 'hello', 'new_string': 'hi', 'old': 'hello', 'new': 'hi'})
             fin = 'tool_calls'
+        elif key == 'btw':
+            self.text(shared('btw', '2 + 2 = 4.'))
+            fin = 'stop'
         elif key == 'badedit':
             # an edit that cannot apply: its text is not in the file
-            self.tool(pick(tools, 'edit_file', 'edit', 'str_replace'), {'path': CWD + '/main.rs', 'old_string': 'not in the file', 'new_string': 'x', 'old': 'not in the file', 'new': 'x'})
+            self.tool(pick(tools, 'edit_file', 'edit', 'str_replace'), {'path': cwd() + '/main.rs', 'old_string': 'not in the file', 'new_string': 'x', 'old': 'not in the file', 'new': 'x'})
             fin = 'tool_calls'
         elif key == 'plan' and 'exit_plan' in tools:
-            self.tool('exit_plan', {'plan': '1. Add `// entry point` as the first line of main.rs.\n2. Save the file.'})
+            self.tool('exit_plan', {'plan': shared('plan', '1. Add `// entry point` as the first line of main.rs.\n2. Save the file.')})
             fin = 'tool_calls'
         elif key == 'write':
-            self.tool(pick(tools, 'write_file', 'write', 'create_file'), {'path': CWD + '/w.txt', 'content': ''.join('%d\n' % i for i in range(1, 31))})
+            self.tool(pick(tools, 'write_file', 'write', 'create_file'), {'path': cwd() + '/w.txt', 'content': ''.join('%d\n' % i for i in range(1, 31))})
             fin = 'tool_calls'
         else:
             self.text('ok')

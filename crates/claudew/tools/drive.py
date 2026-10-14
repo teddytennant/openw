@@ -83,6 +83,33 @@ P_PLAN = ('Plan adding the comment "// entry point" as the first line of main.rs
           'approval right away.')
 
 # A turn stopped with Esc before any tool ran, and a prompt typed while a turn runs.
+P_BADEDIT = ('Use the Edit tool on main.rs to replace the exact text `not in the file` with `x`. Do not '
+             'read any file first, and if the edit fails do not retry. Then reply with exactly: done')
+
+# Compared cell by cell with live wizard, which is driven through the same keys and prompts
+# against the fake server (live.py feeds it the reference's own answers and plan): a failed
+# edit, /btw, /plan, a rejected plan, the rewind list and its confirm step, and ctrl+r.
+SHARED = [
+    ('x-badedit', [('type', P_BADEDIT), ('keys', 'Enter'), ('wait', 2.0), ('idle',), ('wait', 1.0), ('snap', '')]),
+    ('x-btw', [('type', '/btw what is 2+2'), ('keys', 'Enter'), ('until', r'to close', 30),
+               ('wait', 3.0), ('snap', ''), ('keys', 'Escape'), ('wait', 1.0)]),
+    ('x-plancmd', [('type', '/plan'), ('keys', 'Enter'), ('wait', 2.0), ('snap', '')]),
+    ('x-planesc', [('type', P_PLAN), ('keys', 'Enter'), ('until', r'Ready to code', 120), ('wait', 2.0),
+                   ('fast_keys', 'Escape'), ('wait', 2.0), ('idle',), ('wait', 1.0), ('snap', '')]),
+    ('x-rewind', [('fast_keys', 'Escape'), ('wait', 0.2), ('fast_keys', 'Escape'), ('wait', 2.0), ('snap', ''),
+                  # the reference counts /plan as a rewind point, so it takes one more Up to the edit
+                  ('keys', 'Up'), ('keys', 'Up'), ('ref_keys', 'Up'), ('keys', 'Enter'), ('wait', 1.5),
+                  ('snap', '-confirm'),
+                  ('keys', 'Escape'), ('wait', 1.0), ('keys', 'Escape'), ('wait', 1.0)]),
+    ('x-ctrlr', [('keys', 'C-r'), ('wait', 1.5), ('snap', ''), ('keys', 'Escape'), ('wait', 1.0)]),
+]
+
+# A new session that resumes the one above.
+SHARED_RESUME = [
+    ('x-resume', [('wait', 1.0), ('type', '/resume'), ('keys', 'Enter'), ('wait', 3.0), ('snap', ''),
+                  ('keys', 'Enter'), ('wait', 4.0), ('snap', '-opened')]),
+]
+
 TURN3 = [
     ('interrupt', [('type', P_COUNT), ('keys', 'Enter'), ('wait', 2.0), ('fast_keys', 'Escape'),
                    ('wait', 2.0), ('idle',), ('snap', '')]),
@@ -123,9 +150,12 @@ LIVE = [
                        ('wait', 2.0), ('snap', '-footer'), ('type', 'please plan'), ('keys', 'Enter'),
                        ('until', r'Ready to code', 30), ('wait', 0.5), ('snap', ''), ('fast_keys', 'Escape'),
                        ('idle',), ('keys', 'BTab'), ('wait', 2.0)]),
-    # a prompt queued behind two shift+tabs (to chat) during a turn
+    # idle: two shift+tabs (to chat) and a prompt sent in the same burst
+    ('live-burst', [('fast_keys', 'BTab', 'BTab'), ('send', 'now write'), ('fast_keys', 'Enter'),
+                    ('wait', 2.0), ('idle',), ('wait', 1.0), ('snap', '')]),
+    # during a turn: one shift+tab (chat to plan) and a prompt queued behind it
     ('live-queue-mode', [('type', 'please slow'), ('keys', 'Enter'), ('wait', 1.5), ('fast_keys', 'BTab'),
-                         ('wait', 0.3), ('fast_keys', 'BTab'), ('wait', 0.3), ('type', 'please write'),
+                         ('wait', 0.3), ('type', 'please write'),
                          ('fast_keys', 'Enter'), ('wait', 1.0), ('raw_snap', ''), ('fast_keys', 'Escape'),
                          ('wait', 2.0), ('idle',), ('wait', 1.0), ('snap', '-done')]),
     # two presses well inside a second: the second lands while wizard is still on the first
@@ -212,7 +242,8 @@ WIZARD = [
 
 GROUPS = {'mention': [s for s in STATIC if s[0] == 'mention'], 'static': STATIC, 'turn': TURN, 'light': LIGHT, 'turn2': TURN2, 'turn3': TURN3,
           'wizard': WIZARD, 'live': LIVE, 'live-other': LIVE_OTHER,
-          'live-resumed': LIVE_RESUMED, 'live-fail': LIVE_FAIL}
+          'live-resumed': LIVE_RESUMED, 'live-fail': LIVE_FAIL, 'shared': SHARED,
+          'shared-resume': SHARED_RESUME}
 
 
 def tmux(*args, check=True):
@@ -233,7 +264,7 @@ class Pane:
              'env', '-i', 'HOME=' + os.environ['HOME'], 'PATH=' + os.environ['PATH'],
              'USER=' + os.environ.get('USER', ''), 'LANG=en_US.UTF-8', 'TERM=tmux-256color',
              # what tmux itself sets in a pane; both programs decide on hyperlinks from it
-             'TERM_PROGRAM=tmux',
+             'TERM_PROGRAM=tmux', 'TERM_PROGRAM_VERSION=3.6a', 'EDITOR=nvim',
              'SHELL=/bin/sh', *EXTRA_ENV, 'sh')
         for opt, val in (('status', 'off'), ('escape-time', '0'), ('focus-events', 'on'),
                          ('mouse', 'on'), ('history-limit', '2000')):
@@ -325,6 +356,9 @@ def run(target, cmd, cwd, size, group, out, prefix=''):
             if op == 'type':
                 pane.send_literal(step[1])
                 time.sleep(0.35)
+            elif op == 'send':
+                # literal text without waiting for the screen to take it
+                tmux('send-keys', '-t', pane.name, '-l', step[1])
             elif op == 'fast_keys':
                 for k in step[1:]:
                     tmux('send-keys', '-t', pane.name, k)

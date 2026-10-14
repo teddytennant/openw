@@ -39,6 +39,11 @@ reset() {
     echo 'pub fn add(a: i32, b: i32) -> i32 { a + b }' > "$cwd/src/lib.rs"
 }
 reset
+# the scenes compared with live wizard run in a project of their own, so the sessions /resume
+# lists are only theirs
+xcwd=$(dirname "$cwd")/proj-x
+mkdir -p "$xcwd/.wizard" "$xcwd/src"
+printf 'fn main() {\n    println!("hello");\n}\n' > "$xcwd/main.rs"
 (cd "$root" && cargo build -q -p claudew)
 bin="${CARGO_TARGET_DIR:-$root/target}/debug/claudew"
 
@@ -54,11 +59,10 @@ if [ "${REF:-}" = live ]; then
         --before "rm -rf w.txt .git"
     python3 "$here/drive.py" --target ref --cmd "$cmd --settings '{\"tui\":\"fullscreen\"}'" --cwd "$cwd" --out "$ref" --group turn3 --sizes 80x24,120x40 \
         --before "printf 'fn main() {\n    println!(\"hello\");\n}\n' > main.rs"
-    # the edit and markdown turns again with hyperlinks on, so the OSC 8 targets get compared
-    LOOK_ENV=FORCE_HYPERLINK=1 python3 "$here/drive.py" --target ref --cmd "$cmd --settings '{\"tui\":\"fullscreen\"}'" --cwd "$cwd" --out "$ref" --group turn --sizes 120x40 --prefix links- \
+    # the scenes live wizard is compared with cell by cell, and a session resuming them
+    python3 "$here/drive.py" --target ref --cmd "$cmd --settings '{\"tui\":\"fullscreen\"}'" --cwd "$xcwd" --out "$ref" --group shared --sizes 120x40 \
         --before "printf 'fn main() {\n    println!(\"hello\");\n}\n' > main.rs"
-    LOOK_ENV=FORCE_HYPERLINK=1 python3 "$here/drive.py" --target ref --cmd "$cmd --settings '{\"tui\":\"fullscreen\"}'" --cwd "$cwd" --out "$ref" --group turn2 --sizes 120x40 --prefix links- \
-        --before "rm -rf w.txt .git"
+    python3 "$here/drive.py" --target ref --cmd "$cmd --settings '{\"tui\":\"fullscreen\"}'" --cwd "$xcwd" --out "$ref" --group shared-resume --sizes 120x40
     # scrub what is personal: the account's address and organisation, the home directory
     python3 - "$ref" <<'PY'
 import glob, re, sys
@@ -101,15 +105,6 @@ for size in $(echo "$sizes" | tr , ' '); do
             --cmd "env HOME=$home CLAUDEW_BACKEND=replay CLAUDEW_REPLAY=$script $bin --theme $theme --cwd $cwd" > /dev/null
     done
 done
-if [ -f "$ref/links-edit-done-120x40.ansi" ]; then
-    for group in turn turn2; do
-        reset
-        rm -rf "$cwd/w.txt" "$cwd/.git"
-        LOOK_ENV=FORCE_HYPERLINK=1 python3 "$here/drive.py" --target look --cwd "$cwd" --out "$work/look" --group "$group" \
-            --sizes 120x40 --prefix links- \
-            --cmd "env HOME=$work/claude-home CLAUDEW_BACKEND=replay CLAUDEW_REPLAY=$work/replay/$group-120x40.jsonl $bin --cwd $cwd" > /dev/null
-    done
-fi
 echo "captures and report in $work"
 status=0
 python3 "$here/compare.py" "$ref" "$work/look" --report "$work/report" --sizes "$sizes" \
@@ -135,7 +130,11 @@ fi
 if [ -n "${WIZARD_BIN:-}" ]; then
     reset
     python3 "$here/live.py" --wizard "$WIZARD_BIN" --look "$bin" --cwd "$cwd" --work "$work" \
-        --sizes "${LIVE_SIZES:-80x24,120x40}" || status=1
+        --sizes "${LIVE_SIZES:-80x24,120x40}" --ref "$ref" --xcwd "$xcwd" || status=1
+    # live wizard against claude, cell by cell, on the scenes both were put through
+    echo "live wizard against the reference:"
+    python3 "$here/compare.py" "$ref" "$work/live" --only x- --sizes 120x40 --report "$work/report-live" \
+        --version "$("$WIZARD_BIN" --version | awk '{print $NF}')" --cwd "$xcwd" || status=1
 else
     echo "live: skipped (set WIZARD_BIN to a wizard binary to drive real wizard)"
 fi

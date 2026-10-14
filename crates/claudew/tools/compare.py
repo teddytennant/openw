@@ -59,9 +59,6 @@ NOT_COMPARED = [
     ('bash-esc', 'turning a command down at a prompt Wizard never shows'),
 ]
 
-# The turns run again with hyperlinks on (FORCE_HYPERLINK=1): the scenes where a link shows.
-LINK_SCENES = {'links-edit-done', 'links-md', 'links-write-done', 'links-turn-done'}
-
 # (scene glob, which side the pattern is looked for on, row pattern, reason). The matched span
 # of the row is left out of the diff on both sides. A pattern ending in `$$` masks from the
 # match to the end of the row. The rest live in explained.tsv.
@@ -112,6 +109,85 @@ def compare(ref_path, look_path, scene, extra):
     ref = [normalise(r, w, ref_rules) for r in parse(open(ref_path, encoding='utf-8').read(), w, h)]
     look = [normalise(r, w) for r in parse(open(look_path, encoding='utf-8').read(), w, h)]
     masked = [[None] * w for _ in range(h)]
+    # norm: `pattern@@text`, the words of a span that differ by data on both sides; the span's
+    # first cell keeps its style, so colours are still compared
+    for glob_, side, pat, reason in extra:
+        if side == 'norm' and applies(glob_):
+            rx, text = pat.split('@@')
+            ref = [normalise(r, w, [(rx, text)]) for r in ref]
+            look = [normalise(r, w, [(rx, text)]) for r in look]
+    # scroll-ref: `N@@anchor`, the reference's rows above `anchor` sit N rows higher (its panel
+    # needed more room than the screen had); they move back down and what comes into view at
+    # the top, which was off its screen, is masked
+    for glob_, side, pat, reason in extra:
+        if side == 'scroll-ref' and applies(glob_):
+            n, anchor = pat.split('@@')
+            n = int(n)
+            top = next((y for y, r in enumerate(ref) if re.search(anchor, text_of(r))), None)
+            if top is None:
+                continue
+            ref = [[BLANK] * w for _ in range(n)] + ref[:top - n] + ref[top:]
+            for y in range(n):
+                masked[y] = [reason] * w
+    for glob_, side, pat, reason in extra:
+        # drop-pair: `anchor@@row`, as drop, and the row under each match goes with it (a
+        # list entry and its detail row)
+        if side != 'drop-pair' or not applies(glob_):
+            continue
+        anchor, rowpat = pat.split('@@')[:2]
+        hits = [y for y, r in enumerate(ref) if re.search(anchor, text_of(r))]
+        if not hits:
+            continue
+        top = hits[0]
+        for y in reversed([y for y, r in enumerate(ref) if y > top and re.search(rowpat, text_of(r))]):
+            for _ in range(2):
+                if y < len(ref):
+                    del ref[y]
+                    ref.insert(top, [BLANK] * w)
+                    del masked[y]
+                    masked.insert(top, [reason] * w)
+                    y += 1
+    for glob_, side, pat, reason in extra:
+        # drop-up: `row@@anchor`, as drop for a transcript drawn from the top: the rows under
+        # the dropped one, down to the first row matching `anchor`, move up
+        if side != 'drop-up' or not applies(glob_):
+            continue
+        rowpat, anchor = pat.split('@@')[:2]
+        # `+row`: the blank row above each match goes too (the gap before a block)
+        with_gap = rowpat.startswith('+')
+        rowpat = rowpat.lstrip('+')
+        # a transcript that has scrolled is drawn from the bottom: then the rows above move down
+        scrolled = not any('▐▛' in text_of(r) for r in ref[:4])
+        # bottom-most first, so a move does not shift the rows still to come
+        for y in reversed([y for y, r in enumerate(ref) if re.search(rowpat, text_of(r))]):
+            bottom = next((b for b in range(y + 1, h) if re.search(anchor, text_of(ref[b]))), None)
+            if bottom is None:
+                continue
+            gone = [y]
+            if with_gap and y > 0 and not text_of(ref[y - 1]).strip():
+                gone.insert(0, y - 1)
+            for g in reversed(gone):
+                at = 0 if scrolled else bottom - 1
+                del ref[g]
+                ref.insert(at, [BLANK] * w)
+                del masked[g]
+                masked.insert(at, [reason] * w)
+    for glob_, side, pat, reason in extra:
+        # drop-look: as drop, for a row only the look draws (a timing artefact on the
+        # reference's side); what was above it moves down
+        if side != 'drop-look' or not applies(glob_):
+            continue
+        anchor, rowpat = pat.split('@@')[:2]
+        hits = [y for y, r in enumerate(look) if re.search(anchor, text_of(r))]
+        if not hits:
+            continue
+        top = hits[0]
+        for y in [y for y, r in enumerate(look) if y > top and re.search(rowpat, text_of(r))]:
+            del look[y]
+            look.insert(top, [BLANK] * w)
+            del masked[y]
+            masked.insert(top, [reason] * w)
+            top += 1
     for glob_, side, pat, reason in extra:
         # drop: `anchor@@row`. Rows of the reference matching `row` are features the look does
         # not have; they are taken out and what was above them, down to the first row matching
@@ -125,12 +201,19 @@ def compare(ref_path, look_path, scene, extra):
         if not hits:
             continue
         top = hits[-1] if last else hits[0]
+        # `+row`: the blank row above each match goes too
+        with_gap = rowpat.startswith('+')
+        rowpat = rowpat.lstrip('+')
         for y in [y for y, r in enumerate(ref) if y > top and re.search(rowpat, text_of(r))]:
-            del ref[y]
-            ref.insert(top, [BLANK] * w)
-            del masked[y]
-            masked.insert(top, [reason] * w)
-            top += 1
+            gone = [y]
+            if with_gap and y - 1 > top and not text_of(ref[y - 1]).strip():
+                gone.insert(0, y - 1)
+            for g in gone:
+                del ref[g]
+                ref.insert(top, [BLANK] * w)
+                del masked[g]
+                masked.insert(top, [reason] * w)
+                top += 1
     for glob_, side, pat, reason in extra:
         # squeeze-ref, squeeze-look: rows of that side matching are a field the other side has
         # no counterpart for, in a panel drawn from the top. They are taken out and what was
@@ -154,8 +237,23 @@ def compare(ref_path, look_path, scene, extra):
         n = int(pat)
         ref = ref[n:] + [[BLANK] * w for _ in range(n)]
         masked = masked[n:] + [[reason] * w for _ in range(n)]
+    # pair: `refpat@@lookpat`. Where the reference's row has its text, the look's row has its
+    # own in its place; both spans are left out, and only on those rows.
+    for glob_, side, pat, reason in extra:
+        if side != 'pair' or not applies(glob_):
+            continue
+        rp, lp = (re.compile(x) for x in pat.split('@@'))
+        for y in range(h):
+            m = rp.search(text_of(ref[y]))
+            if not m:
+                continue
+            for x in range(m.start(), min(m.end(), w)):
+                masked[y][x] = reason
+            for n in lp.finditer(text_of(look[y])):
+                for x in range(n.start(), min(n.end(), w)):
+                    masked[y][x] = reason
     for glob_, side, pat, reason in EXPLAINED + extra:
-        if side in ('drop', 'cut', 'cursor', 'shape') or side.startswith('squeeze-') or not applies(glob_):
+        if side in ('drop', 'drop-up', 'drop-pair', 'drop-look', 'pair', 'cut', 'cursor', 'norm', 'scroll-ref') or side.startswith(('squeeze-', 'shape')) or not applies(glob_):
             continue
         if side == 'block':
             # block: `start@@end`, every row from one matching start to the next matching end
@@ -238,8 +336,12 @@ def shape(ref_path, look_path, scene, extra):
     (more commands, longer names), and the rule says how."""
     size = ref_path.rsplit('-', 1)[1][:-5]
     full = '%s-%s' % (scene, size)
-    rules = [(re.compile(p), r) for g, s, p, r in extra
-             if s == 'shape' and (fnmatch.fnmatch(scene, g) or fnmatch.fnmatch(full, g))]
+    # shape: the row matches on either side. shape-ref: on the reference's side only.
+    # shape-same: both rows match, and then they are the same form whatever the words.
+    # shape-1, shape-2: both rows match, and then only their first one or two fields are
+    # compared (the columns after them follow the data).
+    rules = [(s, re.compile(p), r) for g, s, p, r in extra
+             if s.startswith('shape') and (fnmatch.fnmatch(scene, g) or fnmatch.fnmatch(full, g))]
     w, h = (int(x) for x in size.split('x'))
     grids = []
     for path in (ref_path, look_path):
@@ -278,10 +380,22 @@ def shape(ref_path, look_path, scene, extra):
     explained = {}
     bad = []
     for y in range(h):
-        if fields(grids[0][y]) == fields(grids[1][y]):
+        a, b = grids[0][y], grids[1][y]
+        if fields(a) == fields(b):
             continue
-        why = next((r for rx, r in rules
-                    if rx.search(text_of(grids[0][y])) or rx.search(text_of(grids[1][y]))), None)
+        ta, tb = text_of(a), text_of(b)
+
+        def covers(kind, rx):
+            if kind == 'shape':
+                return rx.search(ta) or rx.search(tb)
+            if kind == 'shape-ref':
+                return rx.search(ta)
+            both = rx.search(ta) and rx.search(tb)
+            if kind == 'shape-same':
+                return both
+            n = int(kind.split('-')[1])
+            return both and fields(a)[:n] == fields(b)[:n]
+        why = next((r for kind, rx, r in rules if covers(kind, rx)), None)
         if why:
             explained[why] = explained.get(why, 0) + 1
         else:
@@ -301,6 +415,7 @@ def main():
     ap.add_argument('--report')
     ap.add_argument('--sizes', default='80x24,120x40,200x50')
     ap.add_argument('--version', required=True, help="the wizard version the replay reports, which the look must show")
+    ap.add_argument('--only', help='compare only the scenes whose names start with this')
     ap.add_argument('--cwd', help='link targets under this directory compare as relative paths')
     ap.add_argument('--rules', default=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'explained.tsv'))
     a = ap.parse_args()
@@ -318,8 +433,9 @@ def main():
     skipped = []
     for scene in scenes:
         why = next((r for g, r in NOT_COMPARED if fnmatch.fnmatch(scene, g)), None)
-        if scene.startswith('links-') and scene not in LINK_SCENES:
-            why = 'hyperlink run: only the scenes that show links are compared'
+        # the shared scenes are compared with live wizard, in their own run
+        if a.only and not scene.startswith(a.only) or not a.only and scene.startswith('x-'):
+            continue
         if why:
             skipped.append((scene, why))
             continue
