@@ -167,10 +167,20 @@ pub fn build(ctx: &CmdCtx, keymap: &Keymap) -> Vec<Command> {
     let s = ctx.in_session;
 
     // Session group. opencode hides `Share session` when sharing is disabled in its config, and
-    // wizard has no sharing, so the entry is not built at all. The session-only entries are
+    // wizard has no sharing, so it stays out of the palette; typed, `/share` says so instead of
+    // the popup's fuzzy match running something else. The session-only entries are
     // always built so a backend command of the same name is shadowed on
     // the home screen too; the popup and palette filter them by screen.
     {
+        b.add(
+            Some("share"),
+            &[],
+            "Share session",
+            Some("wizard has no session sharing"),
+            Session,
+            Action::Share,
+        )
+        .palette = false;
         b.add(
             Some("rename"),
             &[],
@@ -806,7 +816,7 @@ mod tests {
             },
             &km,
         );
-        assert!(!cmds.iter().any(|c| c.title == "Share session"));
+        assert!(!cmds.iter().any(|c| c.palette && c.title == "Share session"));
         let sys = titles(&cmds, Category::System);
         assert_eq!(sys[0], "View status");
         assert_eq!(&sys[sys.len() - 2..], ["Plugins", "Install plugin"]);

@@ -241,7 +241,7 @@ fn a_model_switched_on_wizards_side_survives_a_new_session() {
 }
 
 #[test]
-fn theme_with_a_name_switches_and_is_saved() {
+fn theme_with_a_name_switches_and_is_saved_and_share_says_it_is_not_there() {
     let dir = std::env::temp_dir().join(format!("openw-theme-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let mut h = Harness::with(
@@ -259,6 +259,13 @@ fn theme_with_a_name_switches_and_is_saved() {
     assert_eq!(h.app.prefs.theme.as_deref(), Some("dracula"));
     let saved = openw::ui::dialogs::prefs::Prefs::load(&dir);
     assert_eq!(saved.theme.as_deref(), Some("dracula"));
+
+    h.sent();
+    h.type_str("/share");
+    h.key(KeyCode::Enter, KeyModifiers::NONE);
+    h.key(KeyCode::Enter, KeyModifiers::NONE);
+    assert!(h.text().contains("wizard has no session sharing"));
+    assert!(!h.sent().iter().any(|r| matches!(r, Request::Prompt(_))));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
