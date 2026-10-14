@@ -393,10 +393,9 @@ mod tests {
     fn args_for_new_and_resumed_sessions() {
         let a = build_args(&launch(SessionArg::New("abc".into())));
         assert!(a.windows(2).any(|w| w == ["--session-id", "abc"]));
-        assert!(
-            a.windows(2)
-                .any(|w| w == ["--permission-mode", "bypassPermissions"])
-        );
+        assert!(a
+            .windows(2)
+            .any(|w| w == ["--permission-mode", "bypassPermissions"]));
         assert!(a.contains(&"--include-partial-messages".to_string()));
         assert!(!a.contains(&"--resume".to_string()));
 

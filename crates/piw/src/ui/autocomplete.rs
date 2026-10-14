@@ -107,7 +107,9 @@ impl FileIndex {
 }
 
 /// The looks wizard's `/ui` switches to.
-const LOOKS: [&str; 7] = ["wizard", "codex", "grok", "opencode", "pi", "jcode", "claude"];
+const LOOKS: [&str; 7] = [
+    "wizard", "codex", "grok", "opencode", "pi", "jcode", "claude",
+];
 
 pub struct AcCtx<'a> {
     pub commands: &'a [SlashItem],
