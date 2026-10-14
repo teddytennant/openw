@@ -536,6 +536,24 @@ fn wheel_and_the_arrow_below_the_viewport_scroll() {
     assert!(h.app.view.following(), "the arrow brings the end back");
 }
 
+/// The prompt just sent sits on the top row; the earlier prompt pinned over the viewport must not
+/// cover it.
+#[test]
+fn the_pinned_prompt_does_not_cover_the_one_just_sent() {
+    use agent_core::Event;
+    let mut h = Harness::new(120, 36);
+    let answer: String = (1..=40).map(|i| format!("- item {i}\n")).collect();
+    h.turn("earlier question", &answer);
+    h.took(1.0);
+    h.render();
+    h.app.send_prompt("the newest question".into());
+    h.event(Event::TurnStart);
+    let t = h.render();
+    let text: String = (0..12).map(|y| t.row(y)).collect::<Vec<_>>().join("\n");
+    assert!(text.contains("the newest question"), "{text}");
+    assert!(!text.contains("earlier question"), "{text}");
+}
+
 /// Prompt sent after a long history: the sent prompt is pinned at the top and a bottom reserve
 /// (a viewport of blank rows) keeps it there, so a running turn shows a scrollbar thumb even
 /// though there is almost nothing below the prompt (`46-thinking-live`).

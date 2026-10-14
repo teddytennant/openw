@@ -1290,6 +1290,13 @@ fn draw_sticky(buf: &mut Buffer, app: &App, lay: &Layout, geo: &Geo, top: usize)
     if h + 1 >= lay.view.height {
         return;
     }
+    // a newer prompt already at the top (the one just sent) must not be painted over
+    if (i + 1..doc.entries.len())
+        .find(|&j| doc.entries[j].kind == Kind::User)
+        .is_some_and(|j| doc.starts[j] <= top + h as usize)
+    {
+        return;
+    }
     let tick = app.tick();
     for (r, row) in rows.iter().take(h as usize).enumerate() {
         let y = lay.view.y + r as u16;
