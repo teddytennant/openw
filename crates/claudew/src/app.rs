@@ -63,9 +63,13 @@ pub const LOCAL_COMMANDS: &[(&str, &str)] = &[
     ),
 ];
 /// How long a footer hint stays up, and how quickly a second press must follow to count.
+/// What to do when wizard cannot start a session or has gone away.
+pub const SETUP_HINT: &str =
+    "Run `wizard setup` to choose a provider and model, then start this look again.";
 const HINT_TTL: Duration = Duration::from_millis(800);
 /// How long the effort notice stays up after start and after a turn.
-const NOTICE_TTL: Duration = Duration::from_secs(8);
+/// How long the effort notice stays once the session is up, a turn ends or a model is picked.
+const NOTICE_TTL: Duration = Duration::from_secs(30);
 const DOUBLE_PRESS: Duration = Duration::from_millis(800);
 const FRAME: Duration = Duration::from_millis(120);
 
@@ -214,6 +218,12 @@ pub struct Busy {
     pub thinking: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ModeStep {
+    Plan,
+    Mode(String),
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Hint {
     CtrlC,
@@ -295,6 +305,24 @@ pub struct App {
     pub amend: Option<String>,
     /// The prompt a `/rewind` is going back to, put back in the input when it lands.
     rewinding: Option<String>,
+    /// shift+tab steps not yet sent, the one wizard has not answered, and where they lead.
+    mode_steps: std::collections::VecDeque<ModeStep>,
+    mode_waiting: Option<ModeStep>,
+    mode_target: Option<(String, bool)>,
+    /// The effort the model picker shows; applied only when the pick is confirmed.
+    pub effort_preview: Option<String>,
+    /// Prompt history kept across sessions, and where.
+    history_file: Option<PathBuf>,
+    /// The directory each entry of `prompts` was sent from.
+    pub prompt_dirs: Vec<String>,
+    /// The history search shows this project's prompts only.
+    pub search_here: bool,
+    /// ctrl+x was pressed: ctrl+s next sends the queued prompts now.
+    chord: bool,
+    /// The clock is pinned (tests).
+    pub fixed_now: bool,
+    /// Blocks holding a prompt that waited in the queue.
+    pub from_queue: Vec<usize>,
     /// `/plan` toggles sent for shift+tab whose turn and answer stay out of the transcript.
     silent: usize,
 }
@@ -375,6 +403,16 @@ impl App {
             rewind_answer: None,
             rewinding: None,
             silent: 0,
+            mode_steps: Default::default(),
+            mode_waiting: None,
+            mode_target: None,
+            effort_preview: None,
+            history_file: None,
+            prompt_dirs: Vec::new(),
+            search_here: false,
+            chord: false,
+            fixed_now: false,
+            from_queue: Vec::new(),
         };
         app.load_home();
         app
@@ -383,6 +421,7 @@ impl App {
     /// Custom commands and subagents from `~/.wizard`. The backend runs a custom command as
     /// typed but does not list it, and keeps subagents to itself.
     fn load_home(&mut self) {
+        self.load_history();
         let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
             return;
         };
@@ -413,13 +452,81 @@ impl App {
         }
     }
 
+    /// Prompts sent from any directory before, oldest first, from `history.jsonl` in the state
+    /// directory: `CLAUDEW_STATE_DIR`, else `$XDG_STATE_HOME/claudew` or
+    /// `~/.local/state/claudew`. The scripted backends keep none unless the variable is set.
+    fn load_history(&mut self) {
+        let dir = match std::env::var_os("CLAUDEW_STATE_DIR") {
+            Some(d) if !d.is_empty() => Some(PathBuf::from(d)),
+            _ if self.opts.backend != BackendKind::Wizard => None,
+            _ => std::env::var_os("XDG_STATE_HOME")
+                .filter(|s| !s.is_empty())
+                .map(|s| PathBuf::from(s).join("claudew"))
+                .or_else(|| {
+                    std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/state/claudew"))
+                }),
+        };
+        let Some(file) = dir.map(|d| d.join("history.jsonl")) else {
+            return;
+        };
+        if let Ok(text) = std::fs::read_to_string(&file) {
+            for line in text.lines() {
+                let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+                    continue;
+                };
+                let Some(p) = v.get("text").and_then(|t| t.as_str()) else {
+                    continue;
+                };
+                self.prompts.push(p.to_string());
+                self.prompt_times
+                    .push(v.get("at").and_then(|t| t.as_i64()).unwrap_or(0));
+                self.prompt_dirs.push(
+                    v.get("cwd")
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                );
+            }
+        }
+        self.history_file = Some(file);
+    }
+
+    fn remember(&mut self, text: &str) {
+        let cwd = self.opts.cwd.to_string_lossy().into_owned();
+        self.prompts.push(text.to_string());
+        self.prompt_times.push(self.now_unix);
+        self.prompt_dirs.push(cwd.clone());
+        let Some(file) = &self.history_file else {
+            return;
+        };
+        let line = serde_json::json!({ "text": text, "at": self.now_unix, "cwd": cwd });
+        if let Some(dir) = file.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(file)
+        {
+            use std::io::Write;
+            let _ = writeln!(f, "{line}");
+        }
+    }
+
     /// Wizard's version, as the backend reports it (`wizard 3.8.10`).
+    /// The reply's text is coming in. The text is the progress then, so the spinner and the
+    /// row above it step aside.
+    pub fn streaming(&self) -> bool {
+        self.busy.is_some() && matches!(self.blocks.last(), Some(Block::Assistant { .. }))
+    }
+
+    /// Empty until wizard has said which it is; never this crate's own version.
     pub fn wizard_version(&self) -> String {
         self.cfg
             .backend
             .strip_prefix("wizard ")
-            .map(str::to_string)
-            .unwrap_or_else(|| VERSION.to_string())
+            .unwrap_or("")
+            .to_string()
     }
 
     pub fn send(&self, req: Request) {
@@ -452,16 +559,11 @@ impl App {
     /// Which entry of the shift+tab cycle is on: an index into the backend's modes, or `None`
     /// for plan mode.
     pub fn mode_index(&self) -> Option<usize> {
-        if self.plan {
+        let (mode, plan) = self.shown_mode();
+        if plan {
             return None;
         }
-        Some(
-            self.cfg
-                .modes
-                .iter()
-                .position(|m| *m == self.cfg.mode)
-                .unwrap_or(0),
-        )
+        Some(self.cfg.modes.iter().position(|m| *m == mode).unwrap_or(0))
     }
 
     fn output(&mut self, text: impl Into<String>, accent: impl Into<String>) {
@@ -554,11 +656,18 @@ impl App {
                 self.commands = c;
                 self.refresh_menu();
             }
-            Event::ConfigChanged(c) => self.cfg = c,
+            Event::ConfigChanged(c) => {
+                self.cfg = c;
+                if matches!(self.mode_waiting, Some(ModeStep::Mode(_))) {
+                    self.mode_waiting = None;
+                    self.pump_modes();
+                }
+            }
             Event::Sessions(s) => self.sessions = s,
             Event::History { session_id, items } => {
                 self.session_id = session_id;
                 self.blocks.clear();
+                self.from_queue.clear();
                 let time = self.now_hm();
                 for item in items {
                     match item {
@@ -602,7 +711,10 @@ impl App {
                     _ => self.blocks.push(Block::Thought(t)),
                 }
             }
-            Event::Tool(call) => {
+            Event::Tool(mut call) => {
+                if let Some(d) = call.diff.take() {
+                    call.diff = Some(place_diff(&self.opts.cwd, d));
+                }
                 if let Some(b) = &mut self.busy {
                     b.thinking = false;
                 }
@@ -623,8 +735,23 @@ impl App {
                 }
             }
             Event::Usage(u) => self.usage = u,
-            Event::TurnEnd(_) if self.silent > 0 && self.busy.is_none() => self.silent -= 1,
-            Event::TurnEnd(reason) => self.end_turn(reason),
+            Event::TurnEnd(_) if self.silent > 0 && self.busy.is_none() => {
+                self.silent -= 1;
+                if self.mode_waiting == Some(ModeStep::Plan) {
+                    self.mode_waiting = None;
+                }
+                self.pump_modes();
+            }
+            Event::TurnEnd(reason) => {
+                self.end_turn(reason);
+                self.pump_modes();
+            }
+            // wizard turned a mode change down because something was running; try it again
+            Event::Notice { text, .. } if text.starts_with("Options can only be changed") => {
+                if let Some(step) = self.mode_waiting.take() {
+                    self.mode_steps.push_front(step);
+                }
+            }
             Event::Notice { text, .. }
                 if agent_core::switched_look(&text).is_some_and(|l| l != LOOK) =>
             {
@@ -657,18 +784,26 @@ impl App {
                     let setup = text.starts_with("could not start a session");
                     self.blocks.push(Block::Notice { level, text });
                     if setup {
+                        self.busy = None;
                         self.blocks.push(Block::Notice {
                             level: NoticeLevel::Info,
-                            text: "Run `wizard setup` to choose a provider and model, then start this look again.".into(),
+                            text: SETUP_HINT.into(),
                         });
                     }
                 }
             }
+            // wizard is gone: nothing is running any more, and nothing typed can reach it
             Event::Fatal(e) => {
                 self.busy = None;
+                self.queued.clear();
+                self.notice = None;
                 self.blocks.push(Block::Notice {
                     level: NoticeLevel::Error,
                     text: e.clone(),
+                });
+                self.blocks.push(Block::Notice {
+                    level: NoticeLevel::Info,
+                    text: SETUP_HINT.into(),
                 });
                 self.fatal = Some(e);
             }
@@ -729,11 +864,19 @@ impl App {
                     dim: false,
                     muted: true,
                 });
-                self.blocks.push(Block::TurnEnd {
-                    verb: busy.verb % DONE_VERBS.len(),
-                    secs,
-                    time: self.now_hm(),
-                });
+                let used_tools = self
+                    .blocks
+                    .iter()
+                    .rev()
+                    .take_while(|b| !matches!(b, Block::User { .. }))
+                    .any(|b| matches!(b, Block::Tool(_)));
+                if used_tools {
+                    self.blocks.push(Block::TurnEnd {
+                        verb: busy.verb % DONE_VERBS.len(),
+                        secs,
+                        time: self.now_hm(),
+                    });
+                }
             }
             _ if command_turn => {}
             _ => self.blocks.push(Block::TurnEnd {
@@ -744,7 +887,11 @@ impl App {
         }
         if !self.queued.is_empty() {
             let next = self.queued.remove(0);
+            let at = self.blocks.len();
             self.submit(next);
+            if matches!(self.blocks.get(at), Some(Block::User { .. })) {
+                self.from_queue.push(at);
+            }
         }
     }
 
@@ -757,19 +904,13 @@ impl App {
             return;
         }
         self.scroll = 0;
-        self.notice = None;
         if self.prompts.last() != Some(&text) {
-            self.prompts.push(text.clone());
-            self.prompt_times.push(self.now_unix);
+            self.remember(&text);
         }
         self.history_at = None;
         if self.bash_mode {
             self.bash_mode = false;
             self.run_shell(text);
-            return;
-        }
-        if self.busy.is_some() {
-            self.queued.push(text);
             return;
         }
         let (name, arg) = match text.strip_prefix('/') {
@@ -779,12 +920,30 @@ impl App {
             }
             None => (String::new(), String::new()),
         };
+        if matches!(name.as_str(), "exit" | "quit") {
+            self.quit = true;
+            return;
+        }
+        if self.fatal.is_some() {
+            self.blocks.push(Block::User { text, bash: false });
+            self.blocks.push(Block::Notice {
+                level: NoticeLevel::Error,
+                text: "Not sent: there is no session to send it to.".into(),
+            });
+            return;
+        }
+        if self.busy.is_some() {
+            self.queued.push(text);
+            return;
+        }
         match name.as_str() {
             "exit" | "quit" => {
                 self.quit = true;
                 return;
             }
             "clear" | "new" | "reset" => {
+                self.notice = None;
+                self.from_queue.clear();
                 self.blocks.clear();
                 self.todos.clear();
                 self.turns = 0;
@@ -992,6 +1151,7 @@ impl App {
         let alt = key.modifiers.contains(KeyModifiers::ALT);
         let shift = key.modifiers.contains(KeyModifiers::SHIFT);
         let now = self.clock.elapsed();
+        let chord = std::mem::take(&mut self.chord);
         let prev_hint = self
             .hint
             .filter(|(_, at)| now.saturating_sub(*at) < DOUBLE_PRESS)
@@ -1034,6 +1194,13 @@ impl App {
             KeyCode::Char('l') if ctrl => self.repaint = true,
             KeyCode::Char('z') if ctrl && !shift => self.suspend = true,
             KeyCode::Char('g') if ctrl => self.edit_request = true,
+            KeyCode::Char('s') if ctrl && chord => {
+                self.chord = false;
+                if self.busy.is_some() && !self.queued.is_empty() {
+                    self.send(Request::Cancel);
+                }
+            }
+            KeyCode::Char('x') if ctrl => self.chord = true,
             KeyCode::Char('s') if ctrl => self.toggle_stash(),
             KeyCode::Char('p') if alt => self.open_model(),
             KeyCode::BackTab => self.cycle_mode(),
@@ -1062,6 +1229,10 @@ impl App {
             _ => {
                 self.shortcuts = false;
                 match self.editor.apply_key(key) {
+                    KeyOutcome::AtTop if key.code == KeyCode::Up && !self.queued.is_empty() => {
+                        let back = std::mem::take(&mut self.queued).join("\n");
+                        self.editor.set_text(&back);
+                    }
                     KeyOutcome::AtTop if key.code == KeyCode::Up => self.history(-1),
                     KeyOutcome::AtBottom if key.code == KeyCode::Down => self.history(1),
                     _ => {
@@ -1107,6 +1278,7 @@ impl App {
         }
         if self.editor.is_empty() && self.busy.is_some() {
             self.send(Request::Cancel);
+            self.hint = Some((Hint::CtrlC, self.clock.elapsed()));
             return;
         }
         self.editor.clear();
@@ -1125,7 +1297,6 @@ impl App {
         } else if self.bash_mode && self.editor.is_empty() {
             self.bash_mode = false;
         } else if self.busy.is_some() {
-            self.queued.clear();
             self.send(Request::Cancel);
         } else if !self.editor.is_empty() {
             if prev == Some(Hint::Esc) {
@@ -1229,27 +1400,51 @@ impl App {
         self.send(Request::Prompt("/plan".into()));
     }
 
+    /// The mode and plan state the footer shows: where the presses so far lead, not yet all
+    /// confirmed by wizard.
+    pub fn shown_mode(&self) -> (String, bool) {
+        self.mode_target
+            .clone()
+            .unwrap_or_else(|| (self.cfg.mode.clone(), self.plan))
+    }
+
+    /// shift+tab: the next of wizard's modes, then plan, then back. Wizard takes one change at
+    /// a time and none during a turn, so the steps queue and each waits for its answer.
     fn cycle_mode(&mut self) {
         let modes = self.cfg.modes.clone();
-        match self.mode_index() {
-            None => {
-                self.plan = false;
+        let (mode, plan) = self.shown_mode();
+        let at = modes.iter().position(|m| *m == mode).unwrap_or(0);
+        let next = if plan {
+            (modes.first().cloned().unwrap_or(mode.clone()), false)
+        } else if at + 1 < modes.len() {
+            (modes[at + 1].clone(), false)
+        } else {
+            (mode.clone(), true)
+        };
+        if next.1 != plan {
+            self.mode_steps.push_back(ModeStep::Plan);
+        }
+        if next.0 != mode {
+            self.mode_steps.push_back(ModeStep::Mode(next.0.clone()));
+        }
+        self.mode_target = Some(next);
+        self.pump_modes();
+    }
+
+    fn pump_modes(&mut self) {
+        if self.mode_waiting.is_some() || self.busy.is_some() {
+            return;
+        }
+        match self.mode_steps.pop_front() {
+            Some(ModeStep::Plan) => {
+                self.mode_waiting = Some(ModeStep::Plan);
                 self.toggle_plan();
-                if let Some(first) = modes.first() {
-                    if *first != self.cfg.mode {
-                        self.cfg.mode = first.clone();
-                        self.send(Request::SetMode(first.clone()));
-                    }
-                }
             }
-            Some(i) if i + 1 < modes.len() => {
-                self.cfg.mode = modes[i + 1].clone();
-                self.send(Request::SetMode(modes[i + 1].clone()));
+            Some(ModeStep::Mode(m)) => {
+                self.mode_waiting = Some(ModeStep::Mode(m.clone()));
+                self.send(Request::SetMode(m));
             }
-            Some(_) => {
-                self.plan = true;
-                self.toggle_plan();
-            }
+            None => self.mode_target = None,
         }
     }
 
@@ -1274,6 +1469,8 @@ impl App {
     fn close_dialog(&mut self) {
         match self.dialog.take() {
             Some(Dialog::Model { .. }) => {
+                self.effort_preview = None;
+                self.show_effort_notice();
                 self.blocks.push(Block::User {
                     text: "/model ".into(),
                     bash: false,
@@ -1298,7 +1495,6 @@ impl App {
                     scope: DecideScope::Once,
                     note: String::new(),
                 });
-                self.queued.clear();
                 self.send(Request::Cancel);
             }
             _ => {}
@@ -1412,6 +1608,7 @@ impl App {
                         if let Some(id) = ids.get(sel) {
                             self.dialog = None;
                             self.blocks.clear();
+                            self.from_queue.clear();
                             self.send(Request::LoadSession(id.clone()));
                         }
                         return;
@@ -1497,6 +1694,10 @@ impl App {
                         query.pop();
                         self.dialog = Some(Dialog::Search { query, sel: 0 });
                     }
+                    KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        self.search_here = !self.search_here;
+                        self.dialog = Some(Dialog::Search { query, sel: 0 });
+                    }
                     KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
                         query.push(c);
                         self.dialog = Some(Dialog::Search { query, sel: 0 });
@@ -1510,9 +1711,11 @@ impl App {
     /// Earlier prompts matching `query`, newest first, as indexes into `prompts`.
     pub fn search_hits(&self, query: &str) -> Vec<usize> {
         let q = query.to_lowercase();
+        let here = self.opts.cwd.to_string_lossy();
         (0..self.prompts.len())
             .rev()
             .filter(|&i| self.prompts[i].to_lowercase().contains(&q))
+            .filter(|&i| !self.search_here || self.prompt_dirs.get(i).is_some_and(|d| *d == here))
             .collect()
     }
 
@@ -1525,6 +1728,47 @@ impl App {
                 _ => None,
             })
             .collect()
+    }
+
+    /// The files the `nth` rewind prompt's turn changed: name, lines added, lines removed.
+    pub fn changes_after(&self, nth: usize) -> Vec<(String, usize, usize)> {
+        let mut seen = 0;
+        let mut inside = false;
+        let mut out: Vec<(String, usize, usize)> = Vec::new();
+        for b in &self.blocks {
+            match b {
+                Block::User { text, bash: false } if !text.starts_with('/') => {
+                    if inside {
+                        break;
+                    }
+                    inside = seen == nth;
+                    seen += 1;
+                }
+                Block::Tool(t) if inside => {
+                    let Some(d) = &t.diff else { continue };
+                    let old = d.old.clone().unwrap_or_default();
+                    let diff = similar::TextDiff::from_lines(&old, &d.new);
+                    let (mut a, mut r) = (0, 0);
+                    for ch in diff.iter_all_changes() {
+                        match ch.tag() {
+                            similar::ChangeTag::Insert => a += 1,
+                            similar::ChangeTag::Delete => r += 1,
+                            similar::ChangeTag::Equal => {}
+                        }
+                    }
+                    let name = d.path.rsplit('/').next().unwrap_or(&d.path).to_string();
+                    match out.iter_mut().find(|(n, _, _)| *n == name) {
+                        Some(e) => {
+                            e.1 += a;
+                            e.2 += r;
+                        }
+                        None => out.push((name, a, r)),
+                    }
+                }
+                _ => {}
+            }
+        }
+        out
     }
 
     /// Ask wizard to go back to before the `nth` prompt the picker lists. Wizard numbers its
@@ -1572,6 +1816,7 @@ impl App {
         let answer = self.rewind_answer.take().unwrap_or_default();
         if answer.starts_with("rewound to before turn") {
             self.blocks.clear();
+            self.from_queue.clear();
             self.send(Request::LoadSession(self.session_id.clone()));
             self.editor.set_text(&text);
         } else {
@@ -1589,6 +1834,10 @@ impl App {
 
     fn decide(&mut self, req: PermissionRequest, choice: Choice) {
         self.dialog = None;
+        // an approved plan ends plan mode in wizard
+        if is_plan(&req) && choice != Choice::No {
+            self.plan = false;
+        }
         let note = self.amend.take().unwrap_or_default();
         self.send(Request::Decide {
             id: req.id,
@@ -1602,40 +1851,57 @@ impl App {
         });
     }
 
+    fn show_effort_notice(&mut self) {
+        self.notice = self.effort_notice();
+        self.notice_until = Some(self.clock.elapsed() + NOTICE_TTL);
+    }
+
     fn pick_model(&mut self, i: usize) {
         let Some(m) = self.cfg.models.get(i).cloned() else {
             return;
         };
         self.dialog = None;
+        self.show_effort_notice();
+        let effort = self.effort_preview.take().filter(|e| *e != self.cfg.effort);
         self.blocks.push(Block::User {
             text: "/model ".into(),
             bash: false,
         });
-        if m.id == self.cfg.model {
+        if m.id == self.cfg.model && effort.is_none() {
             self.output(format!("Kept model as {}", m.name), m.name);
-        } else {
+            return;
+        }
+        if m.id != self.cfg.model {
             self.send(Request::SetModel(m.id.clone()));
             self.cfg.model = m.id;
-            self.output(format!("Set model to {}", m.name), m.name);
         }
+        let mut text = format!("Set model to {} for this session only", m.name);
+        if let Some(e) = effort {
+            self.send(Request::SetEffort(e.clone()));
+            self.cfg.effort = e.clone();
+            self.show_effort_notice();
+            text.push_str(&format!(" with {e} effort"));
+        }
+        self.output(text, m.name);
     }
 
+    /// ←/→ in the model picker: only what the picker shows changes until a pick is confirmed.
     fn step_effort(&mut self, step: isize) {
         let n = self.cfg.efforts.len() as isize;
         if n == 0 {
             return;
         }
+        let current = self
+            .effort_preview
+            .clone()
+            .unwrap_or_else(|| self.cfg.effort.clone());
         let at = self
             .cfg
             .efforts
             .iter()
-            .position(|e| *e == self.cfg.effort)
+            .position(|e| *e == current)
             .unwrap_or(0) as isize;
-        let next = self.cfg.efforts[(at + step).clamp(0, n - 1) as usize].clone();
-        if next != self.cfg.effort {
-            self.cfg.effort = next.clone();
-            self.send(Request::SetEffort(next));
-        }
+        self.effort_preview = Some(self.cfg.efforts[(at + step).clamp(0, n - 1) as usize].clone());
     }
 
     pub fn on_mouse(&mut self, m: MouseEvent) {
@@ -1665,6 +1931,11 @@ impl App {
 
     /// Expire the footer hint and advance the spinner. Returns nothing; sets `dirty`.
     pub fn on_tick(&mut self) {
+        if !self.fixed_now {
+            self.now_unix = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(self.now_unix, |d| d.as_secs() as i64);
+        }
         let now = self.clock.elapsed();
         if self.notice_until.is_some_and(|until| now >= until) {
             self.notice = None;
@@ -1701,9 +1972,20 @@ impl App {
             return "\n".to_string();
         }
         format!(
-            "\n\x1b[2mResume this session with:\x1b[0m\n\x1b[2mwizard-ui-claude --resume {}\x1b[0m\n",
-            self.session_id
+            "\n\x1b[2mResume this session with:\x1b[0m\n\x1b[2m{}\x1b[0m\n",
+            self.resume_command()
         )
+    }
+
+    /// What the user types to come back. Started by `wizard` (it sets CLAUDEW_WIZARD_BIN),
+    /// that is `wizard --resume`, which opens the session just closed, the latest in this
+    /// directory. Run on its own, it is this binary with the id.
+    pub fn resume_command(&self) -> String {
+        if std::env::var_os("CLAUDEW_WIZARD_BIN").is_some_and(|b| !b.is_empty()) {
+            "wizard --resume".to_string()
+        } else {
+            format!("wizard-ui-claude --resume {}", self.session_id)
+        }
     }
 }
 
@@ -1715,7 +1997,18 @@ pub enum Choice {
 }
 
 /// The numbered answers a permission prompt offers.
+/// Wizard's one question: a finished plan from `exit_plan`.
+pub fn is_plan(req: &PermissionRequest) -> bool {
+    req.input.get("plan").is_some_and(|p| p.is_string())
+}
+
 pub fn permission_options(req: &PermissionRequest) -> Vec<(String, Choice)> {
+    if is_plan(req) {
+        return vec![
+            ("Yes, proceed".to_string(), Choice::Yes),
+            ("No, keep planning".to_string(), Choice::No),
+        ];
+    }
     let mut v = vec![("Yes".to_string(), Choice::Yes)];
     if !req.rule.is_empty() {
         let what = match req.kind {
@@ -1726,6 +2019,39 @@ pub fn permission_options(req: &PermissionRequest) -> Vec<(String, Choice)> {
     }
     v.push(("No".to_string(), Choice::No));
     v
+}
+
+/// An edit's diff with the whole file around it. Wizard sends only the replaced snippet, so
+/// it is found in the file: the new text once the edit is made, the old text before. With the
+/// file on both sides the diff shows real line numbers and the lines around the change.
+pub fn place_diff(cwd: &Path, d: agent_core::FileDiff) -> agent_core::FileDiff {
+    let Some(old) = d.old.clone().filter(|o| !o.is_empty() && !d.new.is_empty()) else {
+        return d;
+    };
+    let path = if Path::new(&d.path).is_absolute() {
+        PathBuf::from(&d.path)
+    } else {
+        cwd.join(&d.path)
+    };
+    let Ok(file) = std::fs::read_to_string(&path) else {
+        return d;
+    };
+    if file == d.new || file == old {
+        return d;
+    }
+    let (before, after) = if file.contains(&d.new) && !file.contains(&old) {
+        (file.replacen(&d.new, &old, 1), file)
+    } else if file.contains(&old) {
+        let after = file.replacen(&old, &d.new, 1);
+        (file, after)
+    } else {
+        return d;
+    };
+    agent_core::FileDiff {
+        path: d.path,
+        old: Some(before),
+        new: after,
+    }
 }
 
 /// `(turn, prompt)` pairs from a wizard session file, for `/rewind <turn>`.
@@ -1988,7 +2314,7 @@ pub fn spawn_backend(
     let BackendHandle { tx, mut rx } = match &opts.backend {
         BackendKind::Mock => agent_core::mock::MockBackend::spawn(cwd, resume)?,
         BackendKind::Replay(path) => crate::replay::spawn(path)?,
-        BackendKind::Wizard => backend_wizard::WizardBackend::spawn(cwd, resume)?,
+        BackendKind::Wizard => backend_wizard::WizardBackend::spawn_with(cwd, resume, true)?,
     };
     let fwd = tokio::spawn(async move {
         while let Some(ev) = rx.recv().await {

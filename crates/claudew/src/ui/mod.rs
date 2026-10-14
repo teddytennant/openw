@@ -27,6 +27,9 @@ pub fn draw(buf: &mut Buffer, app: &mut App) {
     let w = area.width as usize;
     let mut rows = transcript::rows(app, w, false);
     let top = match app.dialog.clone() {
+        Some(Dialog::Permission { req, sel }) if crate::app::is_plan(&req) => {
+            dialogs::plan_review(buf, app, &req, sel)
+        }
         Some(Dialog::Permission { req, sel }) => {
             rows.push(Row::new());
             rows.extend(dialogs::permission(app, &req, sel, w));

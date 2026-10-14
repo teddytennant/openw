@@ -24,7 +24,18 @@ pub fn rows(app: &App, w: usize, detail: bool) -> Vec<Row> {
         match &blocks[i] {
             Block::User { text, bash } => {
                 out.push(Row::new());
-                out.extend(user(&th, text, *bash, w));
+                let mut rows = user(&th, text, *bash, w);
+                // a prompt that waited in the queue stays grey until its turn shows something
+                if app.from_queue.contains(&i) && app.busy.is_some() && i + 1 == blocks.len() {
+                    for r in &mut rows {
+                        for (t, st) in r.0.iter_mut() {
+                            if !t.trim().is_empty() && !t.starts_with('❯') {
+                                st.fg = Some(th.secondary);
+                            }
+                        }
+                    }
+                }
+                out.extend(rows);
             }
             Block::Output {
                 text,
@@ -121,9 +132,18 @@ pub fn rows(app: &App, w: usize, detail: bool) -> Vec<Row> {
         }
         i += 1;
     }
-    let asking = matches!(app.dialog, Some(crate::app::Dialog::Permission { .. }));
-    if app.busy.is_some() && !asking {
+    // prompts typed during a turn wait under it, greyed, until it ends
+    for (n, q) in app.queued.iter().enumerate() {
         out.push(Row::new());
+        let st = Style::new().bg(th.user_bg).fg(th.secondary);
+        for (i, r) in wrap_str(q, st, w.saturating_sub(4)).into_iter().enumerate() {
+            let mut row = Row::of(if i == 0 { "❯ " } else { "  " }, st);
+            row.extend(r);
+            out.push(row);
+        }
+        if n + 1 == app.queued.len() {
+            out.push(Row::of("  ctrl+x ctrl+s to send now", th.dim()));
+        }
     }
     out
 }
@@ -146,7 +166,13 @@ fn header(app: &App, w: usize) -> Vec<Row> {
             .with("  ", Style::new())
             .with("Wizard", th.bold())
             .with(" ", Style::new())
-            .with(format!("v{}", app.wizard_version()), th.dim()),
+            .with(
+                match app.wizard_version() {
+                    v if v.is_empty() => String::new(),
+                    v => format!("v{v}"),
+                },
+                th.dim(),
+            ),
         Row::of(MARK[1], brand)
             .with("  ", Style::new())
             .with(crate::text::truncate(&model, room), th.dim()),
@@ -411,6 +437,12 @@ fn tool(app: &App, t: &ToolCall, w: usize, detail: bool) -> Vec<Row> {
         ToolStatus::Failed => th.error,
         _ => th.secondary,
     };
+    // the plan itself is in the approval pane, or in the transcript once answered
+    if t.name == "exit_plan" || t.title.starts_with("exit_plan") {
+        return vec![Row::of("●", th.fg(dot))
+            .with(" ", Style::new())
+            .with("Updated plan", th.bold())];
+    }
     let (name, arg) = call_label(app, t, detail);
     let command = input_str(t, &["command", "cmd", "script"]);
     let mut out: Vec<Row> = Vec::new();

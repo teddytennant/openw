@@ -298,22 +298,32 @@ pub fn mismatches(look: &Buffer, reference: &Buffer, masks: &[&str]) -> Vec<Stri
 /// transient effort notice and the random placeholder.
 pub const COMMON: &[&str] = &[
     r"^[ ▐▛█▜▝▀▌▘▟▙]{9}",
-    r"(?:Claude Code v[0-9.]+|Wizard v3\.8\.10)",
+    r"(?:Claude Code|Wizard) v[0-9.]+",
     r"^.{11}\S.* · (?:Claude Max|Fastest for quick answers)\s*$",
     r"[○◐●◉] \w+ · /effort",
     r"Try .*$",
     r" · ← \d+ agents?",
+    r"You've used \d+% of your weekly limit.*$",
     r"^✻ \S+ for \d+s · done \d+:\d\d [AP]M",
     r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
 ];
+
+/// The wizard version the replay scripts report: the one a recorded real wizard gave.
+pub fn replay_version() -> String {
+    std::fs::read_to_string(fixtures().join("replay/version.txt"))
+        .expect("tests/fixtures/replay/version.txt")
+        .trim()
+        .to_string()
+}
 
 pub fn assert_matches(hn: &mut Harness, name: &str, extra: &[&str]) {
     let reference = reference(name);
     let t = hn.render();
     let header = t.row(1);
     if header.contains("Wizard v") {
+        let want = format!("Wizard v{}", replay_version());
         assert!(
-            header.trim_end().ends_with("Wizard v3.8.10"),
+            header.trim_end().ends_with(&want),
             "{name}: header {header:?}"
         );
     }

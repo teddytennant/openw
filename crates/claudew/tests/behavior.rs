@@ -11,33 +11,65 @@ fn harness() -> Harness {
     Harness::new("static-120x40.jsonl", 120, 40)
 }
 
+fn plan_answer(hn: &mut common::Harness, text: &str) {
+    for ev in [
+        Event::TurnStart,
+        Event::Notice {
+            level: NoticeLevel::Info,
+            text: text.into(),
+        },
+        Event::TurnEnd(StopReason::EndTurn),
+    ] {
+        hn.event(ev);
+    }
+}
+
+fn mode_confirmed(hn: &mut common::Harness, mode: &str) {
+    let mut cfg = hn.app.cfg.clone();
+    cfg.mode = mode.into();
+    hn.event(Event::ConfigChanged(cfg));
+}
+
 #[test]
 fn shift_tab_walks_the_modes_then_plan_and_leaves_no_trace() {
     let mut hn = harness();
     hn.press(KeyCode::BackTab);
     assert_eq!(hn.sent(), [Request::SetMode("accept edits".into())]);
     hn.press(KeyCode::BackTab);
+    assert!(
+        hn.sent().is_empty(),
+        "the second step waits for wizard's answer"
+    );
+    assert_eq!(hn.app.mode_index(), None, "the footer already shows plan");
+    mode_confirmed(&mut hn, "accept edits");
     assert_eq!(hn.sent(), [Request::Prompt("/plan".into())]);
-    for ev in [
-        Event::TurnStart,
-        Event::Notice {
-            level: NoticeLevel::Info,
-            text: "plan mode on".into(),
-        },
-        Event::TurnEnd(StopReason::EndTurn),
-    ] {
-        hn.event(ev);
-    }
+    plan_answer(&mut hn, "plan mode on");
     assert!(hn.app.plan);
     assert!(hn.app.blocks.is_empty(), "{:?}", hn.app.blocks);
     assert!(hn.app.busy.is_none());
     hn.press(KeyCode::BackTab);
-    let sent = hn.sent();
-    assert!(sent.contains(&Request::Prompt("/plan".into())), "{sent:?}");
-    assert!(
-        sent.contains(&Request::SetMode("manual".into())),
-        "{sent:?}"
-    );
+    assert_eq!(hn.sent(), [Request::Prompt("/plan".into())]);
+    plan_answer(&mut hn, "plan mode off");
+    assert_eq!(hn.sent(), [Request::SetMode("manual".into())]);
+    mode_confirmed(&mut hn, "manual");
+    assert_eq!(hn.app.mode_index(), Some(0));
+    assert!(hn.app.blocks.is_empty(), "{:?}", hn.app.blocks);
+}
+
+#[test]
+fn a_refused_mode_change_is_retried_once_the_turn_ends() {
+    let mut hn = harness();
+    hn.press(KeyCode::BackTab);
+    assert_eq!(hn.sent(), [Request::SetMode("accept edits".into())]);
+    hn.event(Event::Notice {
+        level: NoticeLevel::Info,
+        text: "Options can only be changed between turns.".into(),
+    });
+    assert!(hn.app.blocks.is_empty(), "wizard's refusal is not printed");
+    hn.event(Event::TurnStart);
+    hn.event(Event::TurnEnd(StopReason::EndTurn));
+    assert_eq!(hn.sent(), [Request::SetMode("accept edits".into())]);
+    assert_eq!(hn.app.mode_index(), Some(1));
 }
 
 #[test]
@@ -199,7 +231,7 @@ fn the_effort_notice_goes_after_a_while_and_comes_back_for_a_turn() {
         .notice
         .as_deref()
         .is_some_and(|n| n.contains("/effort")));
-    hn.advance(9_000);
+    hn.advance(31_000);
     assert_eq!(hn.app.notice, None);
     hn.type_str("hi");
     hn.press(KeyCode::Enter);
@@ -209,13 +241,29 @@ fn the_effort_notice_goes_after_a_while_and_comes_back_for_a_turn() {
 #[test]
 fn the_header_and_status_show_wizards_version() {
     let mut hn = harness();
-    assert_eq!(hn.app.wizard_version(), "3.8.10");
+    let v = common::replay_version();
+    assert_eq!(hn.app.wizard_version(), v);
     let screen = hn.render().plain();
-    assert!(screen.contains("Wizard v3.8.10"), "{screen}");
+    assert!(screen.contains(&format!("Wizard v{v}")), "{screen}");
     hn.type_str("/status");
     hn.press(KeyCode::Enter);
     let screen = hn.render().plain();
-    assert!(screen.contains("Version:           3.8.10"), "{screen}");
+    assert!(
+        screen.contains(&format!("Version:           {v}")),
+        "{screen}"
+    );
+}
+
+#[test]
+fn before_wizard_answers_the_header_names_no_version() {
+    let mut hn = harness();
+    hn.app.cfg.backend.clear();
+    assert_eq!(hn.app.wizard_version(), "");
+    let screen = hn.render().plain();
+    assert!(
+        !screen.contains(&format!("v{}", claudew::app::VERSION)),
+        "{screen}"
+    );
 }
 
 #[test]
@@ -253,4 +301,200 @@ fn page_up_shows_the_way_back_down() {
     assert!(hn.render().plain().contains("Jump to bottom (ctrl+End) ↓"));
     hn.key(KeyCode::End, crossterm::event::KeyModifiers::CONTROL);
     assert!(!hn.render().plain().contains("Jump to bottom"));
+}
+
+#[test]
+fn after_a_fatal_error_nothing_looks_busy_and_the_exits_work() {
+    let mut hn = harness();
+    hn.type_str("hello");
+    hn.press(KeyCode::Enter);
+    hn.sent();
+    hn.event(Event::Fatal("wizard exited".into()));
+    assert!(hn.app.busy.is_none());
+    let notices: Vec<_> = hn
+        .app
+        .blocks
+        .iter()
+        .filter_map(|b| match b {
+            Block::Notice { text, .. } => Some(text.clone()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        notices.iter().any(|t| t.contains("wizard setup")),
+        "{notices:?}"
+    );
+    hn.type_str("again");
+    hn.press(KeyCode::Enter);
+    assert!(hn.sent().is_empty(), "nothing goes to a dead backend");
+    assert!(hn.app.busy.is_none());
+    hn.type_str("/exit");
+    hn.press(KeyCode::Enter);
+    assert!(hn.app.quit);
+}
+
+#[test]
+fn ctrl_c_during_a_turn_stops_it_and_a_second_press_exits() {
+    let mut hn = harness();
+    hn.type_str("hello");
+    hn.press(KeyCode::Enter);
+    hn.event(Event::TurnStart);
+    hn.sent();
+    hn.ctrl('c');
+    assert_eq!(hn.sent(), [Request::Cancel]);
+    hn.advance(200);
+    hn.ctrl('c');
+    assert!(hn.app.quit);
+}
+
+#[test]
+fn exit_is_not_queued_behind_a_turn() {
+    let mut hn = harness();
+    hn.type_str("hello");
+    hn.press(KeyCode::Enter);
+    hn.event(Event::TurnStart);
+    hn.type_str("/exit");
+    hn.press(KeyCode::Enter);
+    assert!(hn.app.quit);
+}
+
+#[test]
+fn an_interrupt_without_tools_leaves_no_done_line() {
+    let mut hn = harness();
+    hn.type_str("hello");
+    hn.press(KeyCode::Enter);
+    hn.event(Event::TurnStart);
+    hn.event(Event::TextDelta("partial".into()));
+    hn.press(KeyCode::Esc);
+    hn.event(Event::TurnEnd(StopReason::Cancelled));
+    assert!(
+        !hn.app
+            .blocks
+            .iter()
+            .any(|b| matches!(b, Block::TurnEnd { .. })),
+        "{:?}",
+        hn.app.blocks
+    );
+}
+
+#[test]
+fn a_queued_prompt_shows_survives_esc_and_comes_back_on_up() {
+    let mut hn = harness();
+    hn.type_str("first");
+    hn.press(KeyCode::Enter);
+    hn.event(Event::TurnStart);
+    hn.type_str("queued one");
+    hn.press(KeyCode::Enter);
+    let screen = hn.render().plain();
+    assert!(screen.contains("❯ queued one"), "{screen}");
+    assert!(screen.contains("ctrl+x ctrl+s to send now"), "{screen}");
+    assert!(
+        screen.contains("Press up to edit queued messages"),
+        "{screen}"
+    );
+    hn.press(KeyCode::Up);
+    assert_eq!(hn.app.editor.text(), "queued one");
+    assert!(hn.app.queued.is_empty());
+    hn.press(KeyCode::Enter);
+    hn.sent();
+    hn.press(KeyCode::Esc);
+    assert_eq!(hn.sent(), [Request::Cancel]);
+    hn.event(Event::TurnEnd(StopReason::Cancelled));
+    assert_eq!(hn.sent(), [Request::Prompt("queued one".into())]);
+}
+
+#[test]
+fn effort_arrows_only_preview_until_the_pick_is_confirmed() {
+    let mut hn = harness();
+    hn.app.cfg.efforts = vec!["low".into(), "medium".into(), "high".into()];
+    hn.app.cfg.effort = "medium".into();
+    hn.type_str("/model");
+    hn.press(KeyCode::Enter);
+    hn.sent();
+    hn.press(KeyCode::Right);
+    assert!(hn.sent().is_empty());
+    assert_eq!(hn.app.cfg.effort, "medium");
+    hn.press(KeyCode::Esc);
+    assert_eq!(hn.app.cfg.effort, "medium");
+    hn.type_str("/model");
+    hn.press(KeyCode::Enter);
+    hn.press(KeyCode::Right);
+    hn.press(KeyCode::Enter);
+    assert!(hn.sent().contains(&Request::SetEffort("high".into())));
+    let screen = hn.render().plain();
+    assert!(
+        screen.contains("for this session only with high effort"),
+        "{screen}"
+    );
+}
+
+#[test]
+fn a_finished_plan_asks_and_the_answer_goes_back() {
+    let mut hn = harness();
+    hn.app.plan = true;
+    hn.event(Event::TurnStart);
+    hn.event(Event::Permission(agent_core::PermissionRequest {
+        id: "9".into(),
+        tool: "exit_plan".into(),
+        kind: agent_core::ToolKind::Other,
+        title: "Ready to code?".into(),
+        input: serde_json::json!({ "plan": "1. Add `// entry point` to main.rs." }),
+        diff: None,
+        rule: String::new(),
+    }));
+    let screen = hn.render().plain();
+    assert!(screen.contains("Ready to code?"), "{screen}");
+    assert!(screen.contains("// entry point"), "{screen}");
+    assert!(screen.contains("❯ 1. Yes, proceed"), "{screen}");
+    assert!(screen.contains("2. No, keep planning"), "{screen}");
+    hn.sent();
+    hn.press(KeyCode::Enter);
+    assert!(matches!(
+        hn.sent().as_slice(),
+        [Request::Decide { id, allow: true, .. }] if id == "9"
+    ));
+    assert!(!hn.app.plan, "an approved plan leaves plan mode");
+}
+
+#[test]
+fn streaming_text_hides_the_spinner() {
+    let mut hn = harness();
+    hn.type_str("count");
+    hn.press(KeyCode::Enter);
+    hn.event(Event::TurnStart);
+    assert!(
+        hn.render().plain().contains("…"),
+        "the spinner shows before any text"
+    );
+    hn.event(Event::TextDelta("1\n2\n3".into()));
+    let screen = hn.render().plain();
+    assert!(
+        !screen.contains("esc to interrupt)") && !screen.contains("…"),
+        "{screen}"
+    );
+}
+
+#[test]
+fn an_edit_snippet_is_placed_in_its_file() {
+    let dir = std::env::temp_dir().join(format!("claudew-place-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("main.rs"),
+        "fn main() {\n    println!(\"hi\");\n}\n",
+    )
+    .unwrap();
+    let placed = claudew::app::place_diff(
+        &dir,
+        agent_core::FileDiff {
+            path: "main.rs".into(),
+            old: Some("hello".into()),
+            new: "hi".into(),
+        },
+    );
+    assert_eq!(
+        placed.old.as_deref(),
+        Some("fn main() {\n    println!(\"hello\");\n}\n")
+    );
+    assert_eq!(placed.new, "fn main() {\n    println!(\"hi\");\n}\n");
+    std::fs::remove_dir_all(&dir).unwrap();
 }

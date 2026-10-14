@@ -6,7 +6,8 @@
 //! - `{"event": <agent_core::Event>}` sends the event
 //! - `{"await": "prompt"}` waits for the next prompt, `{"await": "decide"}` for a permission answer
 //! - `{"sleep": 300}` waits that many milliseconds
-//! - `{"sessions": [<SessionInfo>, ...]}` sets the answer to `ListSessions`
+//! - `{"sessions": [<SessionInfo>, ...]}` sets the answer to `ListSessions`; an `updated` of
+//!   zero or less is that many seconds before the list is asked for
 //!
 //! `/plan` is answered on the spot, as wizard answers it. Model, effort and mode changes are applied to the config from the last `Ready` and echoed as
 //! `ConfigChanged`. `Cancel` ends the turn and skips to the next `await`.
@@ -66,7 +67,16 @@ impl Player {
             Request::Cancel => Got::Cancel,
             Request::Shutdown => Got::Quit,
             Request::ListSessions => {
-                let _ = self.tx.send(Event::Sessions(self.sessions.clone()));
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_secs() as i64);
+                let mut list = self.sessions.clone();
+                for x in &mut list {
+                    if x.updated <= 0 {
+                        x.updated += now;
+                    }
+                }
+                let _ = self.tx.send(Event::Sessions(list));
                 Got::Other
             }
             Request::NewSession | Request::LoadSession(_) => {

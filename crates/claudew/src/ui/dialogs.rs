@@ -7,7 +7,7 @@ use ratatui::style::{Color, Modifier, Style};
 
 use crate::app::{effort_glyph, permission_options, App, Dialog};
 use crate::text::{blit, put, truncate, width, wrap, wrap_str, Row, Span};
-use crate::ui::{diff, prompt};
+use crate::ui::{diff, markdown, prompt};
 
 const MODEL_ROWS: usize = 10;
 /// Rows from which the help panel spaces its parts out, as the reference does at 50 rows and
@@ -238,7 +238,13 @@ fn model(app: &App, sel: usize, w: usize, h: usize) -> Panel {
     let fixed = 1 + top.len() + 1 + 1 + effort_rows + 1;
     let rows = (h / 2 + 1).saturating_sub(fixed).clamp(1, MODEL_ROWS);
     let shown = rows;
-    let name_w = models.iter().map(|m| width(&m.name)).max().unwrap_or(0) + 2;
+    // the widest name, the current one counted with its ` ✔`, then two columns
+    let name_w = models
+        .iter()
+        .map(|m| width(&m.name) + if m.id == app.cfg.model { 2 } else { 0 })
+        .max()
+        .unwrap_or(0)
+        + 2;
     let first = if sel >= shown { sel + 1 - shown } else { 0 };
     let last = (first + shown).min(models.len());
     for (i, m) in models.iter().enumerate().take(last).skip(first) {
@@ -287,7 +293,7 @@ fn model(app: &App, sel: usize, w: usize, h: usize) -> Panel {
     }
     top.push(Row::new());
     if !app.cfg.effort.is_empty() {
-        let e = &app.cfg.effort;
+        let e = app.effort_preview.as_ref().unwrap_or(&app.cfg.effort);
         let mut name = e.clone();
         name[..1].make_ascii_uppercase();
         let mut row = Row::of("   ", Style::new())
@@ -306,7 +312,7 @@ fn model(app: &App, sel: usize, w: usize, h: usize) -> Panel {
     }
 }
 
-fn status(app: &App, _w: usize) -> Panel {
+fn status(app: &App, w: usize) -> Panel {
     let th = app.theme;
     let mut top = vec![
         tabs(app, "Settings", &["Status"], 0, th.suggestion, false),
@@ -317,20 +323,36 @@ fn status(app: &App, _w: usize) -> Panel {
         ("Version:", app.wizard_version()),
         ("Session ID:", app.session_id.clone()),
         ("cwd:", app.opts.cwd.to_string_lossy().into_owned()),
+        ("", String::new()),
         ("Model:", model),
         ("Effort:", app.cfg.effort.clone()),
         ("Mode:", app.cfg.mode.clone()),
         ("Backend:", app.cfg.backend.clone()),
     ];
     for (label, value) in fields {
+        // the empty label is the blank row Claude Code keeps before the model
+        if label.is_empty() {
+            top.push(Row::new());
+            continue;
+        }
         if value.is_empty() {
             continue;
         }
-        top.push(
-            Row::of("   ", Style::new())
-                .with(format!("{label:<19}"), th.bold())
-                .with(value, Style::new()),
-        );
+        // a long value breaks three columns short of the edge and carries on under itself
+        let room = w.saturating_sub(25).max(10);
+        let chars: Vec<char> = value.chars().collect();
+        for (i, part) in chars.chunks(room).enumerate() {
+            let lead = if i == 0 {
+                format!("{label:<19}")
+            } else {
+                " ".repeat(19)
+            };
+            top.push(
+                Row::of("   ", Style::new())
+                    .with(lead, th.bold())
+                    .with(part.iter().collect::<String>(), Style::new()),
+            );
+        }
     }
     top.push(Row::new());
     top.push(Row::of("   Esc to cancel", th.dim()));
@@ -339,6 +361,48 @@ fn status(app: &App, _w: usize) -> Panel {
         bottom: Vec::new(),
         fill: Some(2),
     }
+}
+
+/// `3 minutes ago · main · 203.2KB`: when, the branch its directory is on, and the size of
+/// wizard's session file.
+fn session_meta(now: i64, s: &agent_core::SessionInfo) -> String {
+    let mut out = ago(now, s.updated);
+    let branch = git_branch(std::path::Path::new(&s.cwd)).unwrap_or_else(|| "HEAD".into());
+    out.push_str(&format!(" · {branch}"));
+    let file = std::env::var_os("HOME").map(|h| {
+        std::path::PathBuf::from(h)
+            .join(".wizard/sessions")
+            .join(format!("{}.jsonl", s.id))
+    });
+    if let Some(len) = file
+        .and_then(|f| std::fs::metadata(f).ok())
+        .map(|m| m.len())
+    {
+        out.push_str(&format!(" · {}", human_size(len)));
+    }
+    out
+}
+
+fn human_size(n: u64) -> String {
+    match n {
+        0..1024 => format!("{n}B"),
+        1024..1_048_576 => format!("{:.1}KB", n as f64 / 1024.0),
+        _ => format!("{:.1}MB", n as f64 / 1_048_576.0),
+    }
+}
+
+/// The branch `.git/HEAD` names, walking up from `dir`.
+fn git_branch(dir: &std::path::Path) -> Option<String> {
+    for d in dir.ancestors() {
+        let head = d.join(".git/HEAD");
+        if let Ok(t) = std::fs::read_to_string(&head) {
+            return t
+                .trim()
+                .strip_prefix("ref: refs/heads/")
+                .map(str::to_string);
+        }
+    }
+    None
 }
 
 pub fn ago(now: i64, then: i64) -> String {
@@ -446,7 +510,7 @@ fn resume(app: &App, sel: usize, query: &str, w: usize, h: usize) -> Panel {
             Style::new()
         };
         top.push(lead.with(title, style));
-        top.push(Row::of(format!("     {}", ago(now, s.updated)), th.dim()));
+        top.push(Row::of(format!("     {}", session_meta(now, s)), th.dim()));
         top.push(Row::new());
     }
     let height = top.len() + footer.len();
@@ -456,6 +520,79 @@ fn resume(app: &App, sel: usize, query: &str, w: usize, h: usize) -> Panel {
         bottom: footer,
         fill: None,
     }
+}
+
+/// A finished plan waiting for approval: a pane over all but the last two transcript rows,
+/// the plan at its top and the question pinned to its bottom. Returns the rows left above it.
+pub fn plan_review(buf: &mut Buffer, app: &App, req: &PermissionRequest, sel: usize) -> u16 {
+    let th = app.theme;
+    let area = *buf.area();
+    let (w, h) = (area.width as usize, area.height);
+    if h < 8 {
+        return 0;
+    }
+    let accent = th.fg(th.suggestion);
+    let rule = Row::of("  ", Style::new()).with("─".repeat(w.saturating_sub(4)), th.fg(th.plan));
+    let dashes =
+        Row::of("  ", Style::new()).with("╌".repeat(w.saturating_sub(4)), th.fg(th.subtle));
+    let plan = req.input.get("plan").and_then(|p| p.as_str()).unwrap_or("");
+    let mut top = vec![
+        Row::of("▔".repeat(w), accent),
+        Row::new(),
+        rule.clone(),
+        Row::of("   ", Style::new()).with("Ready to code?", accent.add_modifier(Modifier::BOLD)),
+        Row::new(),
+        Row::of("   Here is Wizard's plan:", Style::new()),
+        dashes.clone(),
+    ];
+    let mut links = app.links.borrow_mut();
+    for r in markdown::render(&th, plan, w.saturating_sub(6), &mut links) {
+        top.push(indent(r, 3));
+    }
+    drop(links);
+    top.push(dashes);
+    let mut bottom = vec![rule];
+    let question =
+        "Wizard has written up a plan and is ready to execute. Would you like to proceed?";
+    for r in wrap_str(question, th.dim(), w.saturating_sub(6)) {
+        bottom.push(indent(r, 3));
+    }
+    bottom.push(Row::new());
+    for (i, (label, _)) in permission_options(req).iter().enumerate() {
+        let on = i == sel;
+        bottom.push(
+            Row::of(if on { "   ❯ " } else { "     " }, accent)
+                .with(format!("{}.", i + 1), th.dim())
+                .with(" ", Style::new())
+                .with(label.clone(), if on { accent } else { Style::new() }),
+        );
+    }
+    bottom.push(Row::new());
+    let start = 2u16;
+    let room = (h - start) as usize;
+    // a plan longer than the pane is cut, its closing rule with it, and an arrow says so
+    let avail = room.saturating_sub(bottom.len());
+    if top.len() > avail {
+        top.truncate(avail);
+        if let Some(last) = top.last_mut() {
+            let pad = w.saturating_sub(2).saturating_sub(last.width());
+            last.push(" ".repeat(pad), Style::new());
+            last.push("↓", th.dim());
+        }
+    }
+    for y in start..h {
+        for x in 0..area.width {
+            buf[(x, y)].reset();
+        }
+    }
+    for (i, r) in top.iter().enumerate() {
+        blit(buf, 0, start + i as u16, r);
+    }
+    let y0 = h - bottom.len() as u16;
+    for (i, r) in bottom.iter().enumerate() {
+        blit(buf, 0, y0 + i as u16, r);
+    }
+    start
 }
 
 /// A permission prompt as rows for the end of the transcript.
@@ -602,7 +739,8 @@ fn rewind(app: &App, sel: usize, w: usize, h: usize) -> Panel {
         ),
         Row::new(),
     ];
-    let room = (h / 2).saturating_sub(8).max(2);
+    // each prompt takes three rows (itself, what it changed, a gap); the newest few fit
+    let room = ((h / 2).saturating_sub(12) / 3).max(1) + 1;
     let first = (sel + 1).saturating_sub(room).min(n.saturating_sub(room));
     if first > 0 {
         top.push(Row::of(format!("     ↑ {first} more"), th.dim()));
@@ -632,7 +770,31 @@ fn rewind(app: &App, sel: usize, w: usize, h: usize) -> Panel {
             lead.with(truncate(line, w.saturating_sub(8)), st)
         };
         top.push(row);
+        if i + 1 < n {
+            let mut changed = Row::of("     ", Style::new());
+            let files = app.changes_after(i);
+            if files.is_empty() {
+                changed.push("No code changes", th.dim());
+            }
+            for (k, (file, added, removed)) in files.iter().enumerate() {
+                if k > 0 {
+                    changed.push(", ", th.dim());
+                }
+                changed.push(file.clone(), th.dim());
+                if *added > 0 {
+                    changed.push(format!(" +{added}"), th.fg(Color::Indexed(72)));
+                }
+                if *removed > 0 {
+                    changed.push(format!(" -{removed}"), th.fg(th.removed_fg));
+                }
+            }
+            top.push(changed);
+        }
         top.push(Row::new());
+    }
+    let below = n.saturating_sub(first + room);
+    if below > 0 {
+        top.push(Row::of(format!("     ↓ {below} more"), th.dim()));
     }
     Panel {
         top,
@@ -649,9 +811,15 @@ fn search(app: &App, query: &str, sel: usize, w: usize) -> Panel {
     let accent = th.fg(th.suggestion);
     let hits = app.search_hits(query);
     const ROWS: usize = 8;
-    let list_w = 50.min(w / 2);
+    // a 48 column list, then the preview box out to three columns from the edge
+    let list_w = 48.min(w.saturating_sub(15) / 2);
+    let scope = if app.search_here {
+        "this project"
+    } else {
+        "everywhere"
+    };
     let mut top = vec![Row::of("  ", Style::new()).with(
-        "Search prompts · this session",
+        format!("Search prompts · {scope}"),
         accent.add_modifier(Modifier::BOLD),
     )];
     let shown: Vec<usize> = hits
@@ -660,7 +828,7 @@ fn search(app: &App, query: &str, sel: usize, w: usize) -> Panel {
         .take(ROWS.max(sel + 1))
         .skip((sel + 1).saturating_sub(ROWS))
         .collect();
-    let preview_w = w.saturating_sub(list_w + 18).max(10);
+    let preview_w = w.saturating_sub(list_w + 17).max(10);
     let selected = hits
         .get(sel)
         .map(|&i| app.prompts[i].clone())
@@ -691,16 +859,15 @@ fn search(app: &App, query: &str, sel: usize, w: usize) -> Panel {
                 let at = app.prompt_times.get(i).copied().unwrap_or(app.now_unix);
                 row.push(format!("{:<7}", ago_short(app.now_unix, at)), th.dim());
                 row.push("  ", Style::new());
-                let text = truncate(app.prompts[i].lines().next().unwrap_or(""), list_w - 2);
-                let pad = list_w.saturating_sub(width(&text));
+                let text = truncate(app.prompts[i].lines().next().unwrap_or(""), list_w);
+                let pad = list_w.saturating_sub(width(&text)) + 2;
                 row.push(text, if on { accent } else { Style::new() });
                 row.push(" ".repeat(pad), Style::new());
             }
             None => {
-                row.push(" ".repeat(list_w + 13), Style::new());
+                row.push(" ".repeat(list_w + 15), Style::new());
             }
         }
-        row.push(" ", Style::new());
         let inner = preview_w.saturating_sub(2);
         if slot == 0 {
             row.push(format!("╭{}╮", "─".repeat(inner)), dim);
@@ -731,7 +898,7 @@ fn search(app: &App, query: &str, sel: usize, w: usize) -> Panel {
     Panel {
         top,
         bottom: vec![Row::of(
-            "  ↑/↓ to navigate · Enter to use · Esc to cancel",
+            "  ↑/↓ to navigate · Enter to use · Esc to cancel · ctrl+s to scope",
             th.dim(),
         )],
         fill: None,

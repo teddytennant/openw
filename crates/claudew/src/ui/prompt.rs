@@ -25,7 +25,7 @@ pub fn draw(buf: &mut Buffer, app: &mut App) -> u16 {
     let menu = menu_rows(app, w as usize);
     let above = menu.as_ref().map_or(1, |m| m.len().max(1));
     let tip = tip(app);
-    let spinner = if app.busy.is_some() && menu.is_none() {
+    let spinner = if app.busy.is_some() && menu.is_none() && !app.streaming() {
         2 + usize::from(tip.is_some())
     } else {
         0
@@ -106,7 +106,15 @@ pub fn draw(buf: &mut Buffer, app: &mut App) -> u16 {
     put(buf, 1, y, "\u{a0}", prefix_style);
     let text = app.editor.text().to_string();
     if text.is_empty() {
-        if app.blocks.is_empty() && app.busy.is_none() {
+        if !app.queued.is_empty() {
+            put(
+                buf,
+                2,
+                y,
+                "Press up to edit queued messages",
+                Style::new().add_modifier(Modifier::DIM),
+            );
+        } else if app.blocks.is_empty() && app.busy.is_none() {
             let ph = crate::app::PLACEHOLDERS[app.placeholder % crate::app::PLACEHOLDERS.len()];
             put(buf, 2, y, ph, Style::new().add_modifier(Modifier::DIM));
         }
@@ -193,7 +201,8 @@ fn footer_row(app: &App) -> Row {
     }
     let cycle = " (shift+tab to cycle)";
     // no session yet, so no modes to name
-    if app.cfg.modes.is_empty() && !app.plan {
+    let (shown, plan) = app.shown_mode();
+    if app.cfg.modes.is_empty() && !plan {
         return row.with("? for shortcuts", th.dim());
     }
     let first = match app.mode_index() {
@@ -203,21 +212,18 @@ fn footer_row(app: &App) -> Row {
             false
         }
         Some(0) => {
-            row.push(format!("⏸ {} on", mode_label(&app.cfg.mode)), th.dim());
+            row.push(format!("⏸ {} on", mode_label(&shown)), th.dim());
             true
         }
         // each of wizard's other modes has its own mark: sovereign runs on its own like
         // Claude Code's auto mode, chat has no project tools at all
         Some(_) => {
-            let (mark, color) = match app.cfg.mode.as_str() {
+            let (mark, color) = match shown.as_str() {
                 "sovereign" | "auto" => ("⏵⏵", th.warning),
                 "chat" => ("◇", th.accept),
                 _ => ("⏵⏵", th.accept),
             };
-            row.push(
-                format!("{mark} {} on", mode_label(&app.cfg.mode)),
-                th.fg(color),
-            );
+            row.push(format!("{mark} {} on", mode_label(&shown)), th.fg(color));
             row.push(cycle, th.dim());
             false
         }
@@ -361,7 +367,8 @@ fn spinner_row(app: &App) -> Row {
             _ => row.0.push((s, th.fg(color))),
         }
     }
-    if elapsed.as_secs() >= 1 {
+    // the seconds come with the first tokens or thinking, not before
+    if elapsed.as_secs() >= 1 && (busy.chars > 0 || busy.thinking) {
         let mut info = format!(" ({}", fmt_secs(elapsed.as_secs()));
         if busy.chars > 0 {
             info.push_str(&format!(
@@ -371,6 +378,9 @@ fn spinner_row(app: &App) -> Row {
         }
         if busy.thinking {
             info.push_str(" · thinking");
+            if matches!(app.cfg.effort.as_str(), "low" | "high" | "xhigh" | "max") {
+                info.push_str(&format!(" with {} effort", app.cfg.effort));
+            }
         }
         info.push(')');
         row.push(info, th.dim());
@@ -563,9 +573,15 @@ const TIPS: [&str; 5] = [
 
 fn tip(app: &App) -> Option<Row> {
     let busy = app.busy.as_ref()?;
-    if app.clock.elapsed().saturating_sub(busy.since).as_secs() < 3 {
+    // a turn for a prompt that waited in the queue carries on from the one before: no wait
+    let queued = app
+        .blocks
+        .iter()
+        .rposition(|b| matches!(b, crate::app::Block::User { .. }))
+        .is_some_and(|i| app.from_queue.contains(&i));
+    if !queued && app.clock.elapsed().saturating_sub(busy.since).as_secs() < 3 {
         return None;
     }
     let text = TIPS[app.turns % TIPS.len()];
-    Some(Row::of("  ⎿  ", app.theme.dim()).with(text, app.theme.dim()))
+    Some(Row::of("  ⎿ \u{a0}", app.theme.dim()).with(text, app.theme.dim()))
 }

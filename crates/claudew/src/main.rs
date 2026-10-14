@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use agent_core::Request;
 use anyhow::{Context, Result};
-use claudew::app::{self, App, AppOpts, BackendKind, Msg, VERSION};
+use claudew::app::{self, App, AppOpts, BackendKind, Msg, CLAUDE_VERSION, VERSION};
 use tokio::sync::mpsc::unbounded_channel;
 use tuikit::term::{TermGuard, TermOptions};
 
@@ -43,7 +43,7 @@ enum Parsed {
 }
 
 fn version() -> String {
-    format!("wizard-ui-claude {VERSION}")
+    format!("wizard-ui-claude {VERSION} (claude look {CLAUDE_VERSION})")
 }
 
 fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
@@ -284,7 +284,7 @@ mod tests {
     #[test]
     fn version_help_and_refusals() {
         assert!(
-            matches!(parse_args(args(&["--version"])), Ok(Parsed::Exit(s)) if s.starts_with("wizard-ui-claude "))
+            matches!(parse_args(args(&["--version"])), Ok(Parsed::Exit(s)) if s == format!("wizard-ui-claude {VERSION} (claude look {CLAUDE_VERSION})"))
         );
         assert!(matches!(parse_args(args(&["--help"])), Ok(Parsed::Exit(_))));
         assert!(parse_args(args(&["--bogus"])).is_err());
