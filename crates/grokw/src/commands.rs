@@ -1220,6 +1220,21 @@ mod tests {
     }
 
     #[test]
+    fn leaving_omakase_stays_in_plan_mode() {
+        let mut app = app();
+        let notice = |text: &str| agent_core::Event::Notice {
+            level: agent_core::NoticeLevel::Info,
+            text: text.into(),
+        };
+        app.on_event(notice(
+            "omakase off — back to plan mode (you review the plan)",
+        ));
+        assert_eq!(app.mode, crate::app::Mode::Plan);
+        app.on_event(notice("plan mode off"));
+        assert_eq!(app.mode, crate::app::Mode::Normal);
+    }
+
+    #[test]
     fn ui_offers_the_looks() {
         let rows = arg_items(&app(), "ui", "");
         let looks: Vec<&str> = rows.iter().map(|r| r.label.as_str()).collect();

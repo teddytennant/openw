@@ -689,18 +689,11 @@ impl App {
                 self.quit = true;
                 return;
             }
-            Event::Notice { level, text } => {
+            Event::Notice { text, .. } => {
                 // the plan toggle's own answer says which state it is in
-                if text.to_lowercase().contains("plan mode") {
-                    self.mode = if text.to_lowercase().contains("on")
-                        || text.to_lowercase().contains("enabled")
-                    {
-                        Mode::Plan
-                    } else {
-                        Mode::Normal
-                    };
+                if let Some(plan) = agent_core::plan_mode(text) {
+                    self.mode = if plan { Mode::Plan } else { Mode::Normal };
                 }
-                let _ = level;
             }
             _ => {}
         }
