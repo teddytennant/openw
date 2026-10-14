@@ -106,6 +106,9 @@ impl FileIndex {
     }
 }
 
+/// The looks wizard's `/ui` switches to.
+const LOOKS: [&str; 7] = ["wizard", "codex", "grok", "opencode", "pi", "jcode", "claude"];
+
 pub struct AcCtx<'a> {
     pub commands: &'a [SlashItem],
     pub files: &'a [String],
@@ -223,6 +226,22 @@ impl Autocomplete {
                     })
                     .collect();
                 let items = fuzzy_rank(all, arg, |i| format!("{} {}", i.label, i.desc));
+                self.set(Kind::ModelArg, items, (start, cursor), false);
+                return;
+            }
+            // `/ui <look>`: an argument like a model's, applied first and sent on a second enter
+            if let Some(arg) = rest.strip_prefix("ui ") {
+                let start = cursor - arg.len();
+                let all: Vec<Item> = LOOKS
+                    .iter()
+                    .map(|l| Item {
+                        label: l.to_string(),
+                        desc: String::new(),
+                        value: l.to_string(),
+                        dir: false,
+                    })
+                    .collect();
+                let items = fuzzy_rank(all, arg, |i| i.label.clone());
                 self.set(Kind::ModelArg, items, (start, cursor), false);
                 return;
             }
@@ -834,6 +853,16 @@ mod tests {
         let mut a = Autocomplete::new();
         a.update("/mode", 5, &ctx(&c, &[], &[]));
         assert_eq!(a.selected().unwrap().text, "/mode ");
+    }
+
+    #[test]
+    fn ui_offers_the_looks() {
+        let c = cmds();
+        let mut a = Autocomplete::new();
+        a.update("/ui ", 4, &ctx(&c, &[], &[]));
+        assert_eq!(a.items.len(), 7);
+        a.update("/ui op", 6, &ctx(&c, &[], &[]));
+        assert_eq!(a.selected().unwrap().text, "opencode");
     }
 
     #[test]
