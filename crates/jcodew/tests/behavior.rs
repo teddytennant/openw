@@ -160,6 +160,20 @@ fn a_command_wizard_owns_goes_to_wizard_as_typed() {
 }
 
 #[test]
+fn a_new_session_keeps_the_model_wizard_switched_to() {
+    let mut h = Harness::new(120, 40);
+    h.app.chosen_model = Some("alpha/a".into());
+    let mut c = h.app.config.clone();
+    c.model = "beta/b".into();
+    h.event(Event::ConfigChanged(c.clone()));
+    h.event(Event::Ready {
+        session_id: "s2".into(),
+        config: c,
+    });
+    assert_eq!(h.sent(), [Request::SetModel("beta/b".into())]);
+}
+
+#[test]
 fn switching_to_another_look_quits_this_one() {
     let mut h = Harness::new(120, 40);
     h.event(Event::Notice {

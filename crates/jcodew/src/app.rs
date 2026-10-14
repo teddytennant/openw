@@ -363,7 +363,16 @@ impl App {
                 }
                 return;
             }
-            Event::ConfigChanged(c) => self.config = c.clone(),
+            Event::ConfigChanged(c) => {
+                // A switch made on wizard's side (`/provider use`, `/model x`) is the choice now.
+                if self.chosen_model.is_some() {
+                    self.chosen_model = Some(c.model.clone());
+                }
+                if self.chosen_effort.is_some() {
+                    self.chosen_effort = Some(c.effort.clone());
+                }
+                self.config = c.clone();
+            }
             Event::Commands(c) => {
                 self.commands = c.clone();
                 return;
