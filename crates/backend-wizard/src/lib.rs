@@ -402,6 +402,19 @@ fn launch(bin: &OsString, cwd: &std::path::Path) -> anyhow::Result<Proc> {
 
 impl Backend for WizardBackend {
     fn spawn(cwd: PathBuf, resume: Option<String>) -> anyhow::Result<BackendHandle> {
+        Self::spawn_with(cwd, resume, false)
+    }
+}
+
+impl WizardBackend {
+    /// [`Backend::spawn`], with wizard's questions (a finished plan) shown to the frontend as
+    /// [`Event::Permission`] when `ask` is set. Without it they are answered "allow" here, so a
+    /// frontend with no prompt to show never leaves a turn waiting.
+    pub fn spawn_with(
+        cwd: PathBuf,
+        resume: Option<String>,
+        ask: bool,
+    ) -> anyhow::Result<BackendHandle> {
         let cwd = std::path::absolute(&cwd).unwrap_or(cwd);
         let bin = wizard_bin();
         let proc = launch(&bin, &cwd)?;
@@ -410,7 +423,7 @@ impl Backend for WizardBackend {
         agent_core::spawn_supervised(
             "the wizard driver",
             ev_tx.clone(),
-            run(proc, bin, cwd, resume, req_rx, ev_tx),
+            run(proc, bin, cwd, resume, req_rx, ev_tx, ask),
         );
         Ok(BackendHandle {
             tx: req_tx,
@@ -601,6 +614,7 @@ async fn run(
     resume: Option<String>,
     mut req_rx: UnboundedReceiver<Request>,
     ev_tx: UnboundedSender<Event>,
+    ask: bool,
 ) {
     let version = wizard_version(&bin).await;
     let grace = cancel_grace();
@@ -612,6 +626,7 @@ async fn run(
     };
     let cwd_s = cwd.to_string_lossy().into_owned();
     let mut core = Core::new(cwd_s.clone(), resume, version.clone());
+    core.set_asking(ask);
     let graceful = loop {
         match serve(&mut p, &mut core, &mut link, &mut req_rx, grace).await {
             End::Shutdown => break true,
@@ -631,6 +646,7 @@ async fn run(
                                 .to_string(),
                         );
                         core = Core::new(cwd_s.clone(), session, version.clone());
+                        core.set_asking(ask);
                     }
                     Err(e) => {
                         let _ = link.ev_tx.send(Event::Fatal(format!(

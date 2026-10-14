@@ -7,8 +7,8 @@
 use std::collections::{HashMap, VecDeque};
 
 use agent_core::{
-    Config, Event, HistoryItem, NoticeLevel, Request, SessionInfo, SlashCommand, StopReason, Todo,
-    ToolCall,
+    Config, Event, HistoryItem, NoticeLevel, PermissionRequest, Request, SessionInfo, SlashCommand,
+    StopReason, Todo, ToolCall,
 };
 use serde_json::{json, Value};
 
@@ -114,6 +114,10 @@ pub struct Core {
     replay: Option<Replay>,
     queue: VecDeque<String>,
     session_cwds: HashMap<String, String>,
+    /// Put wizard's questions to the frontend instead of answering them here.
+    ask: bool,
+    /// Questions waiting on the frontend: our id, then wizard's request id and its options.
+    asks: HashMap<String, (Value, Vec<Value>)>,
     out: Vec<Action>,
 }
 
@@ -137,6 +141,8 @@ impl Core {
             replay: None,
             queue: VecDeque::new(),
             session_cwds: HashMap::new(),
+            ask: false,
+            asks: HashMap::new(),
             out: Vec::new(),
         }
     }
@@ -157,6 +163,13 @@ impl Core {
             .iter()
             .find(|(_, p)| matches!(p, Pending::Probe))
             .map(|(id, _)| *id)
+    }
+
+    /// Show wizard's `session/request_permission` (a finished plan) to the frontend as
+    /// [`Event::Permission`] and answer with its [`Request::Decide`]. Off, the core answers
+    /// with the first allow option, for frontends that have no prompt to show.
+    pub fn set_asking(&mut self, ask: bool) {
+        self.ask = ask;
     }
 
     pub fn config(&self) -> Config {
@@ -262,6 +275,10 @@ impl Core {
                 }
             }
             Request::Cancel => {
+                // ACP: a cancel answers every open question as cancelled
+                for (_, (rpc, _)) in std::mem::take(&mut self.asks) {
+                    self.answer_permission(rpc, None);
+                }
                 // those prompts are already in the transcript, so say they will not be answered
                 let dropped = std::mem::take(&mut self.queue).len();
                 if dropped > 0 {
@@ -319,9 +336,18 @@ impl Core {
                 }
             }
             Request::Shutdown => self.out.push(Action::CloseStdin),
-            // Added to agent-core for openc; wizard has no permission prompts or steering yet.
-            Request::Decide { .. }
-            | Request::Steer(_)
+            Request::Decide { id, allow, .. } => {
+                if let Some((rpc, options)) = self.asks.remove(&id) {
+                    let want = if allow { "allow" } else { "reject" };
+                    let pick = options
+                        .iter()
+                        .find(|o| str_of(o, "kind").starts_with(want))
+                        .map(|o| str_of(o, "optionId").to_string());
+                    self.answer_permission(rpc, pick);
+                }
+            }
+            // Added to agent-core for openc; wizard has no steering yet.
+            Request::Steer(_)
             | Request::Answer { .. }
             | Request::RewindPreview { .. }
             | Request::Rewind { .. } => {}
@@ -438,9 +464,48 @@ impl Core {
         self.take()
     }
 
-    /// The agent calling us. We advertise no capabilities, so this should not
-    /// happen; answer anyway so a turn can never wedge on us.
+    fn answer_permission(&mut self, rpc: Value, option: Option<String>) {
+        let outcome = match option {
+            Some(o) => json!({"outcome": "selected", "optionId": o}),
+            None => json!({"outcome": "cancelled"}),
+        };
+        self.out.push(Action::Send(
+            json!({"jsonrpc": "2.0", "id": rpc, "result": {"outcome": outcome}}),
+        ));
+    }
+
+    /// The agent calling us. Only `session/request_permission` is expected (a finished plan);
+    /// everything else is answered "not found" so a turn can never wedge on us.
     fn on_server_request(&mut self, method: &str, id: Value, msg: &Value) {
+        if method == "session/request_permission" && self.ask {
+            let params = msg.get("params").cloned().unwrap_or(Value::Null);
+            let call = params.get("toolCall").cloned().unwrap_or(Value::Null);
+            let options = params
+                .get("options")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let key = match &id {
+                Value::String(s) => s.clone(),
+                other => other.to_string(),
+            };
+            let tool = self
+                .tools
+                .get(str_of(&call, "toolCallId"))
+                .map(|t| t.name.clone())
+                .unwrap_or_default();
+            self.asks.insert(key.clone(), (id, options));
+            self.emit(Event::Permission(PermissionRequest {
+                id: key,
+                tool,
+                kind: wire::tool_kind(str_of(&call, "kind")),
+                title: str_of(&call, "title").to_string(),
+                input: call.get("rawInput").cloned().unwrap_or(Value::Null),
+                diff: None,
+                rule: String::new(),
+            }));
+            return;
+        }
         let reply = if method == "session/request_permission" {
             // Prefer an allow option; wizard says it never asks.
             let opt = msg
@@ -509,6 +574,9 @@ impl Core {
                 if let Some(e) = err {
                     let text = wire::rpc_error_text(e);
                     if startup {
+                        // no session means no config; say at least which wizard this is
+                        let c = self.config();
+                        self.emit(Event::ConfigChanged(c));
                         return self.fatal(format!("could not start a session: {text}"));
                     }
                     return self.notice(NoticeLevel::Error, format!("New session failed: {text}"));

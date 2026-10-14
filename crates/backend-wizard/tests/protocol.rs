@@ -245,7 +245,11 @@ fn startup_failure_is_fatal() {
     run.inbound(&json!({"jsonrpc":"2.0","id":1,"result":{}}));
     let id = last_id(&run, "session/new");
     run.line(&json!({"jsonrpc":"2.0","id":id,"error":{"code":-32000,"message":"Authentication required"}}));
-    assert!(matches!(&run.events[0], Event::Fatal(t) if t.contains("Authentication required")));
+    assert!(
+        matches!(&run.events[0], Event::ConfigChanged(c) if c.backend.starts_with("wizard")),
+        "the version is known before the failure"
+    );
+    assert!(matches!(&run.events[1], Event::Fatal(t) if t.contains("Authentication required")));
 }
 
 #[test]
@@ -390,4 +394,54 @@ fn command_turn_is_recognized_even_when_the_prompt_beat_the_commands_list() {
         .iter()
         .any(|e| matches!(e, Event::Notice { text, .. } if text.starts_with("usage: 5"))));
     assert!(!run.events.iter().any(|e| matches!(e, Event::TextDelta(_))));
+}
+
+#[test]
+fn an_asking_core_puts_a_finished_plan_to_the_frontend() {
+    let mut run = ready();
+    run.core.set_asking(true);
+    run.events.clear();
+    run.line(&json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{
+        "sessionUpdate":"tool_call","toolCallId":"call-3","title":"exit_plan","kind":"other","status":"in_progress","rawInput":{"plan":"1. edit"}}}}));
+    let before = run.sent.len();
+    run.line(&json!({"jsonrpc":"2.0","id":9,"method":"session/request_permission","params":{"sessionId":"s1",
+        "toolCall":{"toolCallId":"call-3","title":"Ready to code?","kind":"switch_mode","rawInput":{"plan":"1. edit"}},
+        "options":[{"optionId":"approve","name":"Yes, proceed","kind":"allow_once"},{"optionId":"keep-planning","name":"No, keep planning","kind":"reject_once"}]}}));
+    assert_eq!(
+        run.sent.len(),
+        before,
+        "nothing answers it but the frontend"
+    );
+    let Some(Event::Permission(req)) = run.events.last() else {
+        panic!("{:?}", run.events)
+    };
+    assert_eq!((req.id.as_str(), req.tool.as_str()), ("9", "exit_plan"));
+    assert_eq!(req.input["plan"], "1. edit");
+    run.request(Request::Decide {
+        id: "9".into(),
+        allow: false,
+        scope: DecideScope::Once,
+        note: String::new(),
+    });
+    let r = run.sent.last().unwrap();
+    assert_eq!(
+        (
+            r["id"].as_u64(),
+            r["result"]["outcome"]["optionId"].as_str()
+        ),
+        (Some(9), Some("keep-planning"))
+    );
+}
+
+#[test]
+fn a_cancel_answers_an_open_question() {
+    let mut run = ready();
+    run.core.set_asking(true);
+    run.line(&json!({"jsonrpc":"2.0","id":10,"method":"session/request_permission","params":{"sessionId":"s1",
+        "toolCall":{"toolCallId":"x"},"options":[{"optionId":"approve","kind":"allow_once"}]}}));
+    run.request(Request::Cancel);
+    assert!(run
+        .sent
+        .iter()
+        .any(|m| m["id"] == 10 && m["result"]["outcome"]["outcome"] == "cancelled"));
 }
