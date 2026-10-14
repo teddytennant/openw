@@ -227,6 +227,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 
 [[package]]
+name = "claudew"
+version = "0.1.0"
+dependencies = [
+ "agent-core",
+ "anyhow",
+ "backend-wizard",
+ "crossterm",
+ "futures-util",
+ "libc",
+ "ratatui",
+ "regex",
+ "serde",
+ "serde_json",
+ "similar",
+ "syntect",
+ "tokio",
+ "tuikit",
+ "unicode-segmentation",
+ "unicode-width",
+]
+
+[[package]]
 name = "codexw"
 version = "0.1.0"
 dependencies = [
