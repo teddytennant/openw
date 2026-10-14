@@ -462,7 +462,7 @@ pub fn build(ctx: &CmdCtx, keymap: &Keymap) -> Vec<Command> {
     );
     b.add(
         Some("themes"),
-        &[],
+        &["theme"],
         "Switch theme",
         None,
         System,

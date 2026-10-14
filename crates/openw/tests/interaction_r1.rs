@@ -241,6 +241,28 @@ fn a_model_switched_on_wizards_side_survives_a_new_session() {
 }
 
 #[test]
+fn theme_with_a_name_switches_and_is_saved() {
+    let dir = std::env::temp_dir().join(format!("openw-theme-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = Harness::with(
+        120,
+        36,
+        AppOpts {
+            cwd: "/home/me/proj".into(),
+            mock: true,
+            config_dir: Some(dir.clone()),
+            ..Default::default()
+        },
+    );
+    h.type_str("/theme dracula");
+    h.key(KeyCode::Enter, KeyModifiers::NONE);
+    assert_eq!(h.app.prefs.theme.as_deref(), Some("dracula"));
+    let saved = openw::ui::dialogs::prefs::Prefs::load(&dir);
+    assert_eq!(saved.theme.as_deref(), Some("dracula"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn f7_a_recent_model_wizard_no_longer_offers_is_ignored() {
     let dir = std::env::temp_dir().join(format!("openw-r1-model2-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

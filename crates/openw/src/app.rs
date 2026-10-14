@@ -1814,6 +1814,10 @@ impl App {
                 }
                 self.send(Request::SetModel(args.to_string()))
             }
+            (Action::Themes, false) => match Theme::builtin_mode(args, self.theme.mode) {
+                Some(_) => self.run_effect(Effect::SetTheme(args.to_string())),
+                None => self.toast(Variant::Error, format!("No theme named {args}")),
+            },
             (Action::Compact, _) => self.compact(args),
             (Action::Template(name), _) => self.run_template(name, args),
             (a, _) => self.run_action(a.clone()),
