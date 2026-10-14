@@ -216,6 +216,14 @@ fn model_command_opens_the_selector_or_switches_on_an_exact_match() {
 }
 
 #[test]
+fn a_look_typed_in_full_after_ui_is_sent_on_the_first_enter() {
+    let mut h = Harness::new(100, 30);
+    h.type_str("/ui opencode");
+    h.press(KeyCode::Enter);
+    assert_eq!(prompts(&mut h), ["/ui opencode"]);
+}
+
+#[test]
 fn wizard_commands_go_to_the_backend_without_a_user_block() {
     let mut h = Harness::new(100, 30);
     h.event(Event::Commands(vec![SlashCommand {

@@ -1852,8 +1852,10 @@ impl App {
                         let slash = ap.kind == Kind::Slash;
                         let model_arg = ap.kind == Kind::ModelArg;
                         let keep = ap.keep_open;
+                        let before = self.editor.text().to_string();
                         self.apply_completion(ap);
-                        if slash {
+                        // an argument typed out in full is sent, not applied a second time
+                        if slash || (model_arg && self.editor.text() == before) {
                             self.submit();
                             return;
                         }
