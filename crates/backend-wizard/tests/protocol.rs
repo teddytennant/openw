@@ -445,3 +445,32 @@ fn a_cancel_answers_an_open_question() {
         .iter()
         .any(|m| m["id"] == 10 && m["result"]["outcome"]["outcome"] == "cancelled"));
 }
+
+#[test]
+fn two_user_messages_in_a_row_replay_as_two() {
+    let mut run = common::Run::new("/work/proj", Some("s1"));
+    run.out(&json!({"id": 1, "method": "initialize"}));
+    run.inbound(&json!({"jsonrpc":"2.0","id":1,"result":{}}));
+    let id = last_id(&run, "session/load");
+    for text in ["please slow", "please write"] {
+        run.line(
+            &json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{
+            "sessionUpdate":"user_message_chunk","content":{"type":"text","text":text},"_meta":{"isReplay":true}}}}),
+        );
+    }
+    run.line(&json!({"jsonrpc":"2.0","id":id,"result":{"configOptions":[]}}));
+    let Some(Event::History { items, .. }) = run
+        .events
+        .iter()
+        .find(|e| matches!(e, Event::History { .. }))
+    else {
+        panic!("{:?}", run.events)
+    };
+    assert_eq!(
+        items,
+        &vec![
+            HistoryItem::User("please slow".into()),
+            HistoryItem::User("please write".into())
+        ]
+    );
+}

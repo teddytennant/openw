@@ -75,7 +75,9 @@ struct Replay {
 impl Replay {
     fn text(&mut self, kind: ReplayKind, text: &str) {
         match &mut self.cur {
-            Some((k, buf)) if *k == kind => buf.push_str(text),
+            // wizard replays each user message as one chunk, so a second one is a second
+            // message (an interrupted turn leaves two in a row), not more of the first
+            Some((k, buf)) if *k == kind && kind != ReplayKind::User => buf.push_str(text),
             _ => {
                 self.flush();
                 self.cur = Some((kind, text.to_string()));
