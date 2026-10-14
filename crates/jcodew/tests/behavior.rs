@@ -149,6 +149,14 @@ fn tab_completes_and_walks_the_matches() {
 }
 
 #[test]
+fn tab_after_ui_offers_the_looks() {
+    let mut h = Harness::new(120, 40);
+    h.type_str("/ui op");
+    h.press(KeyCode::Tab);
+    assert_eq!(h.app.ed.text(), "/ui opencode");
+}
+
+#[test]
 fn a_command_wizard_owns_goes_to_wizard_as_typed() {
     let mut h = Harness::new(120, 40);
     h.say("/compact");

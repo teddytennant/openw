@@ -87,8 +87,25 @@ fn fuzzy(needle: &str, hay: &str) -> Option<(i32, Vec<usize>)> {
     (score >= floor).then_some((score, pos))
 }
 
-/// Suggestions for a command being typed (`input` starts with `/` and has no space yet).
+/// The looks wizard's `/ui` switches to.
+const LOOKS: [&str; 7] = [
+    "wizard", "codex", "grok", "opencode", "pi", "jcode", "claude",
+];
+
+/// Suggestions for a command being typed (`input` starts with `/` and has no space yet), or for
+/// the look after `/ui `.
 pub fn suggestions(app: &App, input: &str) -> Vec<Suggestion> {
+    if let Some(arg) = input.strip_prefix("/ui ") {
+        return LOOKS
+            .iter()
+            .filter(|l| l.starts_with(arg.trim_start()))
+            .map(|l| Suggestion {
+                command: format!("/ui {l}"),
+                description: String::new(),
+                matched: (4..4 + arg.trim_start().chars().count()).collect(),
+            })
+            .collect();
+    }
     if !input.starts_with('/') || input.contains(char::is_whitespace) {
         return Vec::new();
     }
