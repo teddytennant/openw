@@ -384,7 +384,7 @@ impl Harness {
     }
 }
 
-pub const MD_PROMPT: &str = include_str!("../../../../tools/grok-markdown-prompt.txt");
+pub const MD_PROMPT: &str = include_str!("markdown-prompt.txt");
 
 /// The markdown between BEGIN and END of the showcase prompt, which the model echoes back.
 pub fn md_reply() -> String {

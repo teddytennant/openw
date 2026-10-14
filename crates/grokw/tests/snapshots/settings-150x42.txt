@@ -32,7 +32,7 @@
                       │  ▸ Text selection                                                               Flash after copy  ›   │
                       │   Editor & Input ───────────────────────────────────────────────────────────────────────────────────  │
                       │                                                                                                       │
-                      │               Tip · Ask Grok: "change theme to grokday" or "what does compact mode do?"               │
+                      │              Tip · Ask Wizard: "change theme to grokday" or "what does compact mode do?"              │
                       │                                                                                                       │
   ╭───────────────────│  ↑/↓/j/k nav  |  g/G top/btm  |  Space toggle  |  Enter toggle  |  → expand  |  / search  |  d reset  │────────────────────╮
   │ ❯                 │                                             F2/Esc close                                              │                    │

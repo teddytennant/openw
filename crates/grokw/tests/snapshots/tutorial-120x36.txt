@@ -2,9 +2,9 @@
    main /tmp/grok-harvest-000000/proj                                                                     1.5K / 256K
 
 
-                        ┌─ Welcome to Grok Build ──────────────────────────────────────── [✗] ─┐
+                        ┌─ Welcome to Wizard ──────────────────────────────────────────── [✗] ─┐
                         │                                                                      │
-                        │  Quick tips to get the most out of Grok Build.                       │
+                        │  Quick tips to get the most out of Wizard.                           │
                         │  Pick a topic. Esc when you're done.                                 │
                         │                                                                      │
                         │  ◆ Coming from Claude, Cursor, or…  your settings, rules & skills…   │

@@ -7,7 +7,7 @@
        search ratatui│  Session info   click or drag to copy                                      │ …
                      │                                                                            │
                      │  Shell version:                                                            │
-     Ratatui is a Rus│  1.0.24 [alpha]                                                            │
+     Ratatui is a Rus│  0.0 [alpha]                                                               │
                      │                                                                            │
      hello world     │  Session ID:                                                               │
                      │  0191b6f0-3c1a-7a52-9a0e-6d3e9b2f1c44                                      │

@@ -2,8 +2,8 @@
    main /tmp/grok-harvest-000000/proj
    ╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
    │                                                                                                                │
-   │  ⠀⠀⠀⠀⠀⠀⣀⣀⡀⠀⠀⠀⢀⠄   Grok Build  1.0.24                                                                           │
-   │  ⠀⠀⠀⣠⣾⠿⠛⠛⠛⠛⢀⡴⠁⠀   Thanks for trying Grok Build, give feedback with /feedback!                                  │
+   │  ⠀⠀⠀⠀⠀⠀⣀⣀⡀⠀⠀⠀⢀⠄   Wizard  0.0                                                                                  │
+   │  ⠀⠀⠀⣠⣾⠿⠛⠛⠛⠛⢀⡴⠁⠀   Thanks for trying Wizard, give feedback with /feedback!                                      │
    │  ⠀⠀⣼⡟⠁⠀⠀⠀⢀⡴⠻⣿⡀⠀                                                                                                │
    │  ⠀⠀⣿⡇⠀⠀⠀⠔⠁⠀⠀⣿⡇⠀   New worktree                                                                         ctrl+w  │
    │  ⠀⠀⢹⣷⠀⠀⠀⠀⠀⢀⣴⡿⠀⠀   Resume session                                                                       ctrl+r  │

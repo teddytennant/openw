@@ -27,6 +27,10 @@ fn live(h: &mut Harness, rows: u16) -> (TestTerminal, Option<ratatui::buffer::Bu
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn the_live_rows_are_the_last_ten_of_the_capture() {
     let mut h = minimal();
     let (t, commit) = live(&mut h, 10);
@@ -47,6 +51,10 @@ fn the_live_rows_are_the_last_ten_of_the_capture() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn typing_shows_in_the_bare_prompt() {
     let mut h = minimal();
     h.type_str("hello");

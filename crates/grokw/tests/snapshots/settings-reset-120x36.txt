@@ -27,7 +27,7 @@
                   │   Mouse ───────────────────────────────────────────────────────────────────────  │
                   │  ▸ Scroll speed                                                          50      │
                   │                                                                                  │
-                  │    Tip · Ask Grok: "change theme to grokday" or "what does compact mode do?"     │
+                  │   Tip · Ask Wizard: "change theme to grokday" or "what does compact mode do?"    │
                   │                                                                                  │
                   │                y reset  |  n cancel  |  Esc cancel  |  F2 cancel                 │timestamps: off
  ╭────────────────└──────────────────────────────────────────────────────────────────────────────────┘────────────────╮

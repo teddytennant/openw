@@ -14,7 +14,7 @@
             │                                                      │
             │                                                      │
             │                                                      │
-            Tip · Ask Grok about the docs · /tmp/grokw-docs-test/docs/user-guide
+            Tip · Ask Wizard about the docs · /tmp/grokw-docs-test/docs/user-gui
             │                                                      │
   ╭─────────│        ↑/↓ nav  |  Enter select  |  Esc close        │─────────╮
   │ ❯       └──────────────────────────────────────────────────────┘         │

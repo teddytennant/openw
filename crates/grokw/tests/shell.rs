@@ -27,6 +27,10 @@ fn finish(hn: &mut Harness, output: &str, ok: bool) {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn a_finished_bang_is_a_green_run_user_block() {
     for (w, h) in [(120u16, 36u16), (150, 42), (80, 24)] {
         let mut hn = bang(w, h);

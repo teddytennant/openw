@@ -6,10 +6,10 @@
 
    ╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
    │                                                                                                                │
-   │  ⠀⠀⠀⠀⠀⠀⣀⣀⡀⠀⠀⠀⢀⠄   Grok Build  1.0.24                                                                           │
+   │  ⠀⠀⠀⠀⠀⠀⣀⣀⡀⠀⠀⠀⢀⠄   Wizard  0.0                                                                                  │
    │  ⠀⠀⠀⣠⣾⠿⠛⠛⠛⠛⢀⡴⠁⠀                                                                                                │
-   │  ⠀⠀⣼⡟⠁⠀⠀⠀⢀⡴⠻⣿⡀⠀   grokw runs on wizard.                                                                        │
-   │  ⠀⠀⣿⡇⠀⠀⠀⠔⠁⠀⠀⣿⡇⠀   Models, sessions and tools come from wizard acp; commands wizard cannot back say so.         │
+   │  ⠀⠀⣼⡟⠁⠀⠀⠀⢀⡴⠻⣿⡀⠀   Welcome to wizard.                                                                           │
+   │  ⠀⠀⣿⡇⠀⠀⠀⠔⠁⠀⠀⣿⡇⠀   This is its grok look. Type /ui to see the others or to switch back to the wizard look.      │
    │  ⠀⠀⢹⣷⠀⠀⠀⠀⠀⢀⣴⡿⠀⠀                                                                                                │
    │  ⠀⢀⠞⠁⠠⢶⣶⣶⣶⠿⠋⠀⠀⠀   New worktree                                                                         ctrl+w  │
    │  ⠐⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀   Resume session                                                                       ctrl+r  │

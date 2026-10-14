@@ -29,6 +29,10 @@ fn diff(kind: Kind) -> Harness {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn every_theme_matches_the_markdown_tail() {
     for k in Kind::ALL {
         let n = k.canonical();
@@ -46,6 +50,10 @@ fn every_theme_matches_the_markdown_tail() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn every_theme_matches_the_long_turn() {
     for k in Kind::ALL {
         let n = k.canonical();

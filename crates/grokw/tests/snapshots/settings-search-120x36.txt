@@ -27,7 +27,7 @@
                   │                                                                                  │
                   │                                                                                  │
                   │                                                                                  │
-                  │    Tip · Ask Grok: "change theme to grokday" or "what does compact mode do?"     │
+                  │   Tip · Ask Wizard: "change theme to grokday" or "what does compact mode do?"    │
                   │                                                                                  │
                   │   type to filter  |  ↑/↓ nav  |  Backspace edit  |  Enter commit  |  Esc clear   │ghts width: 130
  ╭────────────────└──────────────────────────────────────────────────────────────────────────────────┘────────────────╮

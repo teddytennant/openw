@@ -21,6 +21,10 @@ fn warned(w: u16, h: u16, ann: (&str, &str), tip: &str) -> Harness {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn clipboard_warning_pushes_the_card_down_three_rows() {
     let cases = [
         (
@@ -180,6 +184,10 @@ fn esc_closes_the_dialog_and_a_long_name_grows_it() {
 /// one where the first menu row is painted over the header included. The announcement and tip
 /// each capture showed are pinned, since they come from a server and rotate.
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn every_captured_layout_matches_cell_for_cell() {
     const HERE: &str = "Grok 4.7 is here!";
     const SELECT: &str = "Select 'Grok 4.7' under /model.";

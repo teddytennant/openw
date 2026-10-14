@@ -20,7 +20,7 @@
 
   ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────70─
     ❯ /memory                  [new] Browse, view, and manage your memories                                          █
-      /tutorial                      Quick tips to get the most out of Grok Build
+      /tutorial                      Quick tips to get the most out of Wizard
       /settings                      Open the settings modal
       /dashboard                     Open the Agent Dashboard
       /workflows                     Browse installed workflows

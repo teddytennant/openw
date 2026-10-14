@@ -84,6 +84,10 @@ fn expanded_group() -> Harness {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn an_open_group_takes_the_cursor_member_by_member_and_matches_74b() {
     let mut h = expanded_group();
     h.press(KeyCode::Down);
@@ -149,6 +153,10 @@ fn find_state() -> Harness {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn find_bar_matches_the_capture() {
     let mut h = find_state();
     h.app.dispatch("/find table".into());
@@ -703,6 +711,10 @@ fn the_counter_shows_the_context_wizard_reported() {
 /// `84-compact-mode` in `reference/grok` is not a compact screen, so there is nothing to
 /// compare compact mode with.
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn timestamps_off_matches_its_capture() {
     let mut h = Harness::new(120, 36);
     h.app.fixed_hm = Some((17, 43));

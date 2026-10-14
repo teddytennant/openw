@@ -13,7 +13,7 @@
             │  ▸ Snap prompt to top on send                on      │
             │  ▸ Disable vim input mode                    on      │
             │                                                      │
-            │          Tip · Ask Grok to change a setting          │
+            │         Tip · Ask Wizard to change a setting         │
             │                                                      │
             │     ↑/↓/j/k nav  |  g/G top/btm  |  Space toggle     │
   ╭─────────│  Enter toggle  |  → expand  |  / search  |  d reset  │─────────╮
