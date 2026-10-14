@@ -22,8 +22,10 @@ pub fn draw(buf: &mut Buffer, app: &mut App) {
         return;
     }
     if app.detail {
-        app.link_spots.clear();
-        return draw_detail(buf, app);
+        draw_detail(buf, app);
+        let links = app.links.borrow().clone();
+        app.link_spots = hyperlinks(buf, &links);
+        return;
     }
     let w = area.width as usize;
     let mut rows = transcript::rows(app, w, false);
@@ -47,6 +49,10 @@ pub fn draw(buf: &mut Buffer, app: &mut App) {
         let pw = crate::text::width(pill) as u16;
         let x = area.width.saturating_sub(pw).div_ceil(2);
         let st = Style::new().bg(app.theme.user_bg).fg(app.theme.user_fg);
+        // the pill covers what is under it, underline and all
+        for i in 0..pw.min(area.width.saturating_sub(x)) {
+            buf[(x + i, top - 1)].reset();
+        }
         put(buf, x, top - 1, pill, st);
     }
     let links = app.links.borrow().clone();
@@ -68,22 +74,44 @@ fn hyperlinks(
         // right before it (a tool row's `Update(` before its file)
         let (prefix, label) = text.split_once('\0').unwrap_or(("", text.as_str()));
         if !prefix.is_empty() {
-            let full = format!("{prefix}{label}");
-            let want: Vec<&str> =
-                unicode_segmentation::UnicodeSegmentation::graphemes(full.as_str(), true).collect();
-            let skip = unicode_segmentation::UnicodeSegmentation::graphemes(prefix, true).count();
+            let seg = |t: &str| -> Vec<String> {
+                unicode_segmentation::UnicodeSegmentation::graphemes(t, true)
+                    .map(str::to_string)
+                    .collect()
+            };
+            let (pre, lab) = (seg(prefix), seg(label));
+            let at = |x: u16, y: u16, g: &[String]| {
+                x as usize + g.len() <= area.right() as usize
+                    && g.iter()
+                        .enumerate()
+                        .all(|(i, c)| buf[(x + i as u16, y)].symbol() == c)
+            };
             for y in area.top()..area.bottom() {
                 for x in area.left()..area.right() {
-                    if x + want.len() as u16 > area.right() {
-                        break;
+                    if !at(x, y, &pre) {
+                        continue;
                     }
-                    let hit = want
-                        .iter()
-                        .enumerate()
-                        .all(|(i, g)| buf[(x + i as u16, y)].symbol() == *g);
-                    if hit {
-                        let lx = x + skip as u16;
-                        out.push((lx, y, label.to_string(), url.clone(), buf[(lx, y)].fg));
+                    // the label may run on to the next row when the path wraps
+                    let lx = x + pre.len() as u16;
+                    let fit = lab.len().min((area.right() - lx) as usize);
+                    if fit == 0 || !at(lx, y, &lab[..fit]) {
+                        continue;
+                    }
+                    out.push((lx, y, lab[..fit].concat(), url.clone(), buf[(lx, y)].fg));
+                    if fit < lab.len() && y + 1 < area.bottom() {
+                        let rest = &lab[fit..];
+                        let n = rest.len().min(area.width as usize);
+                        if let Some(x2) =
+                            (area.left()..area.right()).find(|&x2| at(x2, y + 1, &rest[..n]))
+                        {
+                            out.push((
+                                x2,
+                                y + 1,
+                                rest[..n].concat(),
+                                url.clone(),
+                                buf[(x2, y + 1)].fg,
+                            ));
+                        }
                     }
                 }
             }
@@ -123,7 +151,16 @@ fn draw_rows(buf: &mut Buffer, app: &mut App, rows: &[Row], area: Rect) {
     app.scroll = app.scroll.min(max_scroll);
     app.last_view = (rows.len(), view);
     let start = max_scroll - app.scroll;
+    // a prompt whose row above has scrolled off is not drawn at all, as the reference leaves
+    // it out; whatever else is cut at the top shows its tail
+    let user_bg = app.theme.user_bg;
+    let is_user = |r: &Row| r.0.first().is_some_and(|(_, st)| st.bg == Some(user_bg));
+    let mut hide = start > 0;
     for (i, row) in rows.iter().skip(start).take(view).enumerate() {
+        if hide && is_user(row) {
+            continue;
+        }
+        hide = false;
         blit(buf, area.x, area.y + i as u16, row);
     }
 }
@@ -150,7 +187,7 @@ fn draw_detail(buf: &mut Buffer, app: &mut App) {
     }
     let mut hint = format!(
         "Showing detailed transcript · ctrl+o to toggle · ↑↓ scroll · v to open in {} · ? for shortcuts",
-        crate::app::editor_display()
+        crate::app::editor_name()
     );
     if crate::text::width(&hint) + 12 > w as usize {
         hint = "Showing detailed transcript · ctrl+o to toggle · ? for shortcuts".to_string();

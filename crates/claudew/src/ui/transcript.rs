@@ -127,7 +127,24 @@ pub fn rows(app: &App, w: usize, detail: bool) -> Vec<Row> {
                     NoticeLevel::Warn => th.warning,
                     NoticeLevel::Error => th.error,
                 };
-                out.extend(hanging(&th, text, th.fg(color), w));
+                // a command's answer with fenced blocks (/diff) is markdown, drawn under ⎿
+                if *level == NoticeLevel::Info && text.contains("```") {
+                    let mut links = app.links.borrow_mut();
+                    for (k, r) in markdown::render(&th, text, w.saturating_sub(5), &mut links)
+                        .into_iter()
+                        .enumerate()
+                    {
+                        let mut row = if k == 0 {
+                            Row::of(ELBOW, th.dim())
+                        } else {
+                            Row::of("     ", Style::new())
+                        };
+                        row.extend(r);
+                        out.push(row);
+                    }
+                } else {
+                    out.extend(hanging(&th, text, th.fg(color), w));
+                }
             }
         }
         i += 1;
@@ -341,6 +358,20 @@ fn shell_kind(t: &ToolCall) -> ToolKind {
 }
 
 fn bucket(t: &ToolCall) -> (&'static str, &'static str, &'static str) {
+    // wizard marks some tools as reads that the reference would fold otherwise: a listing is
+    // a listing, git status and git diff are commands, and a tool search finds tools
+    let tool = if t.name.is_empty() {
+        t.title.as_str()
+    } else {
+        t.name.as_str()
+    };
+    let tool = tool.split([':', '(', ' ']).next().unwrap_or("");
+    match tool {
+        "list_files" => return ("listed", "directory", "directories"),
+        "git_status" | "git_diff" => return ("ran", "shell command", "shell commands"),
+        "tool_search" => return ("searched for", "tool", "tools"),
+        _ => {}
+    }
     let kind = if t.kind == ToolKind::Execute {
         shell_kind(t)
     } else {
@@ -412,13 +443,17 @@ fn plan_rows(app: &App, t: &ToolCall, w: usize) -> Vec<Row> {
             }
         }
         ToolStatus::Failed => {
-            out.push(Row::of(ELBOW, th.dim()).with("User rejected Wizard's plan:", th.dim()));
+            out.push(
+                Row::of(ELBOW, th.dim()).with("User rejected Wizard's plan:", th.fg(th.subtle)),
+            );
             let border = th.fg(th.plan);
-            let inner = w.saturating_sub(9);
+            // the box is as wide as the plan, up to the screen
+            let rows = markdown::render(&th, plan, w.saturating_sub(9), &mut links);
+            let inner = rows.iter().map(|r| r.width()).max().unwrap_or(0);
             out.push(
                 Row::of("     ", Style::new()).with(format!("╭{}╮", "─".repeat(inner + 2)), border),
             );
-            for r in markdown::render(&th, plan, inner, &mut links) {
+            for r in rows {
                 let pad = inner.saturating_sub(r.width());
                 let mut row = Row::of("     ", Style::new()).with("│ ", border);
                 row.extend(r);
@@ -529,7 +564,10 @@ fn tool(app: &App, t: &ToolCall, w: usize, detail: bool) -> Vec<Row> {
         wrap_str(&format!("({arg})"), Style::new(), w.saturating_sub(col))
     };
     // the file an edit or write touched opens from its row, as an OSC 8 file:// link
-    if matches!(name.as_str(), "Update" | "Write") && !arg.is_empty() && markdown::hyperlinks() {
+    if matches!(name.as_str(), "Update" | "Write" | "Read")
+        && !arg.is_empty()
+        && markdown::hyperlinks()
+    {
         let path = t
             .diff
             .as_ref()
@@ -550,7 +588,7 @@ fn tool(app: &App, t: &ToolCall, w: usize, detail: bool) -> Vec<Row> {
     }
     let mut first = Row::of("●", th.fg(dot))
         .with(" ", Style::new())
-        .with(name, th.bold());
+        .with(name.clone(), th.bold());
     let mut args = args.into_iter();
     if let Some(r) = args.next() {
         first.extend(r);
@@ -573,6 +611,16 @@ fn tool(app: &App, t: &ToolCall, w: usize, detail: bool) -> Vec<Row> {
         };
         // a resumed result already carries the prefix wizard gave it
         let text = text.strip_prefix("Error: ").unwrap_or(text);
+        // a failed edit or write says only that, as the reference does; ctrl+o has the detail
+        let short = match name.as_str() {
+            "Update" if !detail && text != "Interrupted" => Some("Error editing file"),
+            "Write" if !detail && text != "Interrupted" => Some("Error writing file"),
+            _ => None,
+        };
+        if let Some(short) = short {
+            out.push(Row::of(ELBOW, th.dim()).with(short, th.fg(th.error)));
+            return out;
+        }
         out.extend(hanging(&th, &format!("Error: {text}"), th.fg(th.error), w));
         return out;
     }

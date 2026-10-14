@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use crate::term::Terminal;
 use agent_core::{
     Backend, BackendHandle, Config, DecideScope, Event, HistoryItem, NoticeLevel,
     PermissionRequest, Request, SessionInfo, SlashCommand, StopReason, Todo, ToolCall, ToolKind,
@@ -12,7 +13,7 @@ use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tuikit::editor::{Editor, KeyOutcome};
-use tuikit::term::{Event as TermEvent, EventPump, TermGuard, Terminal};
+use tuikit::term::{Event as TermEvent, EventPump, TermGuard};
 
 use crate::theme::Theme;
 
@@ -70,8 +71,9 @@ pub const SETUP_HINT: &str =
 const HISTORY_KEEP: usize = 1000;
 /// Past this size the history file is cut back to its last entries.
 const HISTORY_TRIM_BYTES: u64 = 512 * 1024;
-/// The wait before a refused mode change is sent again.
+/// The wait before a refused mode change is sent again, and how many times it is.
 const MODE_RETRY: Duration = Duration::from_millis(400);
+const MODE_RETRIES: u32 = 15;
 const HINT_TTL: Duration = Duration::from_millis(800);
 /// How long the effort notice stays up after start and after a turn.
 /// How long the effort notice stays once the session is up, a turn ends or a model is picked.
@@ -212,6 +214,12 @@ pub enum Dialog {
     Rewind {
         sel: usize,
     },
+    /// `/btw`: a side question and its answer, in a panel; nothing goes in the transcript.
+    Btw {
+        question: String,
+        answer: Option<String>,
+        scroll: usize,
+    },
     /// The rewind's confirm step for the `nth` prompt.
     RewindConfirm {
         nth: usize,
@@ -337,8 +345,17 @@ pub struct App {
     pub fixed_now: bool,
     /// Blocks holding a prompt that waited in the queue.
     pub from_queue: Vec<usize>,
-    /// When to send a mode change wizard turned down again.
+    /// When to send a mode change wizard turned down again, and how often it has been.
     mode_retry: Option<Duration>,
+    mode_retries: u32,
+    /// Wizard said there is no session to change: mode presses wait for the next Ready.
+    no_session: bool,
+    /// shift+tab presses made before the first session came up.
+    early_presses: usize,
+    /// The running turn is wizard answering /btw.
+    btw_turn: bool,
+    /// A typed /rewind went through: the transcript is rebuilt when its turn ends.
+    reload_after_turn: bool,
     /// The ctrl+r hint: from the second step through history until something is typed.
     pub search_hint: bool,
     /// Something was sent this session, a local command included: no placeholder after it.
@@ -434,6 +451,11 @@ impl App {
             fixed_now: false,
             from_queue: Vec::new(),
             mode_retry: None,
+            mode_retries: 0,
+            no_session: false,
+            early_presses: 0,
+            btw_turn: false,
+            reload_after_turn: false,
             search_hint: false,
             submitted: false,
         };
@@ -644,7 +666,16 @@ impl App {
 
     /// Which entry of the shift+tab cycle is on: an index into the backend's modes, or `None`
     /// for plan mode.
-    /// Where wizard confirmed it is: the footer never shows a mode before wizard is in it.
+    /// Where the presses so far lead: an index into the modes, or `None` for plan.
+    pub fn shown_index(&self) -> Option<usize> {
+        let (mode, plan) = self.shown_mode();
+        if plan {
+            return None;
+        }
+        Some(self.cfg.modes.iter().position(|m| *m == mode).unwrap_or(0))
+    }
+
+    /// Where wizard confirmed it is.
     pub fn mode_index(&self) -> Option<usize> {
         let (mode, plan) = (self.cfg.mode.clone(), self.plan);
         if plan {
@@ -720,6 +751,12 @@ impl App {
                         self.submit(p);
                     }
                 }
+                // shift+tab pressed before the session existed, or while it was replaced
+                self.no_session = false;
+                for _ in 0..std::mem::take(&mut self.early_presses) {
+                    self.cycle_mode();
+                }
+                self.pump_modes();
             }
             Event::Commands(mut c) => {
                 for custom in self
@@ -745,8 +782,10 @@ impl App {
             }
             Event::ConfigChanged(c) => {
                 self.cfg = c;
-                if matches!(self.mode_waiting, Some(ModeStep::Mode(_))) {
+                // only the change asked for answers the wait; a model or effort update does not
+                if matches!(&self.mode_waiting, Some(ModeStep::Mode(m)) if *m == self.cfg.mode) {
                     self.mode_waiting = None;
+                    self.mode_retries = 0;
                     self.pump_modes();
                 }
             }
@@ -778,6 +817,11 @@ impl App {
             Event::TurnStart => {
                 if self.busy.is_none() {
                     self.start_busy();
+                }
+            }
+            Event::TextDelta(t) if self.btw_turn => {
+                if let Some(Dialog::Btw { answer, .. }) = &mut self.dialog {
+                    answer.get_or_insert_with(String::new).push_str(&t);
                 }
             }
             Event::TextDelta(t) => {
@@ -837,19 +881,55 @@ impl App {
             // wizard turned a mode change down because something was running; try it again
             // wizard turned a mode change down because a turn or its follow-up was still in
             // flight: try again shortly, and again, until it takes
-            Event::Notice { text, .. } if text.starts_with("Options can only be changed") => {
+            Event::Notice { text, .. }
+                if text.starts_with("Options can only be changed")
+                    && matches!(self.mode_waiting, Some(ModeStep::Mode(_))) =>
+            {
                 if let Some(step) = self.mode_waiting.take() {
                     self.mode_steps.push_front(step);
                 }
-                self.mode_retry = Some(self.clock.elapsed() + MODE_RETRY);
+                self.mode_retries += 1;
+                if self.mode_retries > MODE_RETRIES {
+                    self.mode_failed("wizard stayed busy");
+                } else {
+                    self.mode_retry = Some(self.clock.elapsed() + MODE_RETRY);
+                }
+            }
+            // no session yet: hold the change until there is one
+            Event::Notice { text, .. }
+                if text == "No session yet."
+                    && matches!(self.mode_waiting, Some(ModeStep::Mode(_))) =>
+            {
+                if let Some(step) = self.mode_waiting.take() {
+                    self.mode_steps.push_front(step);
+                }
+                self.no_session = true;
+            }
+            Event::Notice { text, .. }
+                if text.starts_with("Could not change the setting")
+                    && matches!(self.mode_waiting, Some(ModeStep::Mode(_))) =>
+            {
+                self.mode_failed(text.trim_start_matches("Could not change the setting: "));
             }
             Event::Notice { text, .. }
                 if agent_core::switched_look(&text).is_some_and(|l| l != LOOK) =>
             {
                 self.quit = true;
             }
+            // a typed /rewind: once its turn ends the transcript is rebuilt from the session
+            Event::Notice { text, .. }
+                if self.rewinding.is_none() && text.starts_with("rewound to before turn") =>
+            {
+                self.reload_after_turn = true;
+            }
             Event::Notice { text, .. } if self.rewinding.is_some() => {
                 self.rewind_answer = Some(text);
+            }
+            // the answer to /btw goes in its panel
+            Event::Notice { text, .. } if self.btw_turn => {
+                if let Some(Dialog::Btw { answer, .. }) = &mut self.dialog {
+                    *answer = Some(text);
+                }
             }
             Event::Notice { level, text } => {
                 let low = text.to_lowercase();
@@ -922,6 +1002,17 @@ impl App {
     }
 
     fn end_turn(&mut self, reason: StopReason) {
+        if std::mem::take(&mut self.reload_after_turn) {
+            self.busy = None;
+            self.blocks.clear();
+            self.from_queue.clear();
+            self.send(Request::LoadSession(self.session_id.clone()));
+            return;
+        }
+        if std::mem::take(&mut self.btw_turn) {
+            self.busy = None;
+            return;
+        }
         if let Some(text) = self.rewinding.take() {
             self.finish_rewind(text);
             return;
@@ -1046,7 +1137,12 @@ impl App {
             });
             return;
         }
-        if self.busy.is_some() {
+        // a turn running, or a mode change not yet confirmed: the prompt waits for it, so it
+        // never runs in a mode on the way to the one pressed
+        // panels the look opens itself (help, status, the pickers) need no wizard mode
+        let local = matches!(name.as_str(), "help" | "status" | "resume" | "continue")
+            || (name == "model" && arg.is_empty());
+        if self.busy.is_some() || (self.modes_pending() && !local) {
             self.queued.push(text);
             return;
         }
@@ -1057,6 +1153,29 @@ impl App {
         match name.as_str() {
             "exit" | "quit" => {
                 self.quit = true;
+                return;
+            }
+            // a side question: answered in a panel, kept out of the conversation
+            "btw" if !arg.is_empty() => {
+                self.dialog = Some(Dialog::Btw {
+                    question: arg.clone(),
+                    answer: None,
+                    scroll: 0,
+                });
+                self.btw_turn = true;
+                self.send(Request::Prompt(text));
+                return;
+            }
+            // plan mode through the same steps as shift+tab, so it is never entered on chat
+            "plan" if arg.is_empty() && !self.cfg.modes.is_empty() => {
+                self.blocks.push(Block::User { text, bash: false });
+                let (mode, plan) = self.shown_mode();
+                if plan {
+                    self.output("Already in plan mode.", String::new());
+                } else {
+                    self.go_to((mode, true));
+                    self.output("Enabled plan mode", String::new());
+                }
                 return;
             }
             "clear" | "new" | "reset" => {
@@ -1451,6 +1570,25 @@ impl App {
             self.editor.insert_newline();
             return;
         }
+        // what was typed wins when it names a command, or when nothing's name matches it (a
+        // description match is a suggestion, not something to run on Enter)
+        let typed = self.editor.text().trim().to_string();
+        let word = typed
+            .strip_prefix('/')
+            .map(|r| r.split_whitespace().next().unwrap_or("").to_lowercase());
+        let named = word.as_ref().is_some_and(|w| {
+            self.commands.iter().any(|c| c.name.to_lowercase() == *w)
+                || !self
+                    .commands
+                    .iter()
+                    .any(|c| c.name.to_lowercase().contains(w.as_str()))
+        });
+        if named && matches!(self.menu, Menu::Slash { .. }) {
+            self.editor.clear();
+            self.menu = Menu::None;
+            self.submit(typed);
+            return;
+        }
         if let Menu::Slash { items, sel } = &self.menu {
             if let Some(cmd) = items.get(*sel).and_then(|i| self.commands.get(*i)) {
                 let text = format!("/{}", cmd.name);
@@ -1554,6 +1692,11 @@ impl App {
     /// shift+tab: the next of wizard's modes, then plan, then back. Wizard takes one change at
     /// a time and none during a turn, so the steps queue and each waits for its answer.
     fn cycle_mode(&mut self) {
+        // no session yet, so no modes to step through: count the press and replay it on Ready
+        if !self.ready {
+            self.early_presses += 1;
+            return;
+        }
         let modes = self.cfg.modes.clone();
         let (mode, plan) = self.shown_mode();
         let at = modes.iter().position(|m| *m == mode).unwrap_or(0);
@@ -1564,6 +1707,13 @@ impl App {
         } else {
             (mode.clone(), true)
         };
+        self.go_to(next);
+    }
+
+    /// Queue the steps from where the presses so far lead to `next` (mode, plan).
+    fn go_to(&mut self, next: (String, bool)) {
+        let modes = self.cfg.modes.clone();
+        let (mode, plan) = self.shown_mode();
         // plan mode reads the project, so it never sits on chat, which has no project tools
         let next = if next.1 && next.0 == "chat" {
             let base = modes
@@ -1588,8 +1738,32 @@ impl App {
         self.pump_modes();
     }
 
+    /// A mode change wizard would not make: the rest of the presses go too, the footer goes
+    /// back to the mode wizard is in, and a prompt held for them returns to the input unsent.
+    fn mode_failed(&mut self, why: &str) {
+        self.mode_waiting = None;
+        self.mode_steps.clear();
+        self.mode_target = None;
+        self.mode_retries = 0;
+        self.mode_retry = None;
+        self.blocks.push(Block::Notice {
+            level: NoticeLevel::Warn,
+            text: format!("Mode not changed: {why}"),
+        });
+        if !self.queued.is_empty() && self.editor.is_empty() {
+            let back = std::mem::take(&mut self.queued).join("\n");
+            self.editor.set_text(&back);
+        }
+    }
+
+    /// A mode change is pressed and not yet confirmed: prompts wait for it.
+    pub fn modes_pending(&self) -> bool {
+        self.mode_waiting.is_some() || !self.mode_steps.is_empty() || self.silent > 0
+    }
+
     fn pump_modes(&mut self) {
-        if self.mode_waiting.is_some() || self.busy.is_some() {
+        // before the session exists there is nothing to change; Ready runs this again
+        if self.mode_waiting.is_some() || self.busy.is_some() || !self.ready || self.no_session {
             return;
         }
         match self.mode_steps.pop_front() {
@@ -1700,6 +1874,7 @@ impl App {
         let mut v: Vec<&SessionInfo> = self
             .sessions
             .iter()
+            .filter(|s| s.id != self.session_id)
             .filter(|s| self.resume_all || s.cwd.is_empty() || s.cwd == cwd)
             .filter(|s| q.is_empty() || s.title.to_lowercase().contains(&q))
             .collect();
@@ -1853,6 +2028,22 @@ impl App {
                     KeyCode::Enter => self.dialog = None,
                     _ => {}
                 }
+            }
+            Dialog::Btw {
+                question,
+                answer,
+                scroll,
+            } => {
+                let scroll = match key.code {
+                    KeyCode::Up => scroll.saturating_sub(1),
+                    KeyCode::Down => scroll + 1,
+                    _ => scroll,
+                };
+                self.dialog = Some(Dialog::Btw {
+                    question,
+                    answer,
+                    scroll,
+                });
             }
             Dialog::RewindConfirm { nth, sel } => {
                 let n = REWIND_CHOICES.len();
@@ -2187,17 +2378,27 @@ impl App {
         if self.blocks.is_empty() || self.session_id.is_empty() {
             return "\n".to_string();
         }
+        // wizard can only reopen the latest session, so it is named as that
+        let lead = if self.started_by_wizard() {
+            "Resume the most recent session with:"
+        } else {
+            "Resume this session with:"
+        };
         format!(
-            "\n\x1b[2mResume this session with:\x1b[0m\n\x1b[2m{}\x1b[0m\n",
+            "\n\x1b[2m{lead}\x1b[0m\n\x1b[2m{}\x1b[0m\n",
             self.resume_command()
         )
+    }
+
+    fn started_by_wizard(&self) -> bool {
+        std::env::var_os("CLAUDEW_WIZARD_BIN").is_some_and(|b| !b.is_empty())
     }
 
     /// What the user types to come back. Started by `wizard` (it sets CLAUDEW_WIZARD_BIN),
     /// that is `wizard --resume`, which opens the session just closed, the latest in this
     /// directory. Run on its own, it is this binary with the id.
     pub fn resume_command(&self) -> String {
-        if std::env::var_os("CLAUDEW_WIZARD_BIN").is_some_and(|b| !b.is_empty()) {
+        if self.started_by_wizard() {
             "wizard --resume".to_string()
         } else {
             format!("wizard-ui-claude --resume {}", self.session_id)
@@ -2354,12 +2555,14 @@ pub fn slash_matches(commands: &[SlashCommand], query: &str) -> Vec<usize> {
         .enumerate()
         .filter_map(|(i, c)| {
             let name = c.name.to_lowercase();
-            if name.starts_with(&q) {
+            if name == q {
                 Some((0, i))
-            } else if name.contains(&q) {
+            } else if name.starts_with(&q) {
                 Some((1, i))
-            } else if c.description.to_lowercase().contains(&q) {
+            } else if name.contains(&q) {
                 Some((2, i))
+            } else if c.description.to_lowercase().contains(&q) {
+                Some((3, i))
             } else {
                 None
             }
@@ -2548,14 +2751,25 @@ pub fn spawn_backend(
 }
 
 fn draw_frame(terminal: &mut Terminal, app: &mut App) -> Result<()> {
-    terminal.draw(|f| {
-        let area = f.area();
-        app.size = (area.width, area.height);
-        crate::ui::draw(f.buffer_mut(), app);
-        if let Some(c) = app.cursor {
-            f.set_cursor_position(c);
-        }
-    })?;
+    let before = app.link_spots.clone();
+    let frame = |terminal: &mut Terminal, app: &mut App| -> std::io::Result<()> {
+        terminal.draw(|f| {
+            let area = f.area();
+            app.size = (area.width, area.height);
+            crate::ui::draw(f.buffer_mut(), app);
+            if let Some(c) = app.cursor {
+                f.set_cursor_position(c);
+            }
+        })?;
+        Ok(())
+    };
+    frame(terminal, app)?;
+    // a link drawn last frame and gone now leaves its attribute on cells the diff does not
+    // rewrite: the whole screen goes again
+    if before.iter().any(|s| !app.link_spots.contains(s)) {
+        terminal.clear()?;
+        frame(terminal, app)?;
+    }
     if !app.link_spots.is_empty() {
         use crossterm::cursor::{MoveTo, RestorePosition, SavePosition};
         use crossterm::style::{Print, ResetColor, SetForegroundColor};

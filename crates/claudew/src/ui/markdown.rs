@@ -4,7 +4,7 @@
 
 use ratatui::style::{Color, Modifier, Style};
 
-use crate::text::{width, wrap, Row, Span};
+use crate::text::{width, Row, Span};
 use crate::theme::Theme;
 use crate::ui::diff::Highlighter;
 
@@ -135,15 +135,79 @@ pub fn hyperlinks() -> bool {
         if var("VTE_VERSION").parse::<u32>().is_ok_and(|v| v >= 5000) {
             return true;
         }
-        let program = var("TERM_PROGRAM");
-        if ["iTerm.app", "WezTerm", "vscode", "ghostty"].contains(&program.as_str()) {
-            return true;
+        // TERM_PROGRAM with its version, as Claude Code reads it: tmux links from 3.4
+        let version: Vec<u32> = var("TERM_PROGRAM_VERSION")
+            .split(['.', '-'])
+            .map(|p| {
+                p.trim_end_matches(|c: char| c.is_ascii_alphabetic())
+                    .parse()
+                    .unwrap_or(0)
+            })
+            .collect();
+        let at_least = |want: &[u32]| {
+            let have = |i: usize| version.get(i).copied().unwrap_or(0);
+            want.iter()
+                .enumerate()
+                .find(|(i, w)| have(*i) != **w)
+                .is_none_or(|(i, w)| have(i) > *w)
+        };
+        match var("TERM_PROGRAM").as_str() {
+            "tmux" => return at_least(&[3, 4]),
+            "iTerm.app" => return at_least(&[3, 1]),
+            "WezTerm" => return at_least(&[20200620]),
+            "vscode" => return at_least(&[1, 72]),
+            "ghostty" => return true,
+            _ => {}
         }
         let term = var("TERM");
         ["kitty", "foot", "ghostty", "alacritty", "wezterm"]
             .iter()
             .any(|t| term.contains(t))
     })
+}
+
+/// A line of markdown source as the reference colours it inside a fence: `**strong**` bold,
+/// a link's text in red and its target underlined, everything else plain.
+fn markdown_source(line: &str) -> Row {
+    let mut row = Row::new();
+    let mut rest = line;
+    while !rest.is_empty() {
+        let strong = rest.find("**").and_then(|a| {
+            let end = rest[a + 2..].find("**")? + a + 4;
+            Some((a, end, 0))
+        });
+        let link = rest.find('[').and_then(|a| {
+            let close = rest[a..].find("](")? + a;
+            let end = rest[close..].find(')')? + close + 1;
+            Some((a, end, close))
+        });
+        let next = match (strong, link) {
+            (Some(s), Some(l)) => Some(if s.0 <= l.0 { s } else { l }),
+            (s, l) => s.or(l),
+        };
+        let Some((at, end, close)) = next else {
+            row.push(rest, Style::new());
+            break;
+        };
+        row.push(&rest[..at], Style::new());
+        if close == 0 {
+            row.push(&rest[at..end], Style::new().add_modifier(Modifier::BOLD));
+        } else {
+            row.push("[", Style::new());
+            row.push(
+                &rest[at + 1..close],
+                Style::new().fg(ratatui::style::Color::Indexed(1)),
+            );
+            row.push("](", Style::new());
+            row.push(
+                &rest[close + 2..end - 1],
+                Style::new().add_modifier(Modifier::UNDERLINED),
+            );
+            row.push(")", Style::new());
+        }
+        rest = &rest[end..];
+    }
+    row
 }
 
 fn table_cells(line: &str) -> Vec<String> {
@@ -223,7 +287,7 @@ pub fn render(th: &Theme, text: &str, max: usize, links: &mut Vec<(String, Strin
     while i < lines.len() {
         let t = lines[i].trim_end();
         if let Some(lang) = t.trim_start().strip_prefix("```") {
-            // a fenced markdown block is shown as written, in the colour of inline code
+            // a fenced markdown block is shown as written, not highlighted
             let as_code = matches!(lang.trim(), "markdown" | "md");
             let mut hl = Highlighter::new(lang.trim());
             let known = hl.known() && !as_code;
@@ -237,7 +301,8 @@ pub fn render(th: &Theme, text: &str, max: usize, links: &mut Vec<(String, Strin
                         row.push(s, st);
                     }
                 } else if as_code {
-                    row.push(lines[i], Style::new().fg(th.suggestion));
+                    // shown as written, with the reference's light markdown colouring
+                    row.extend(markdown_source(lines[i]));
                 } else {
                     row.push(lines[i], Style::new());
                 }
@@ -270,8 +335,11 @@ pub fn render(th: &Theme, text: &str, max: usize, links: &mut Vec<(String, Strin
             ("", t, Style::new())
         };
         let hang = list_indent(rest);
-        for (k, r) in wrap(
+        // a list item's first row has the full width, its marker included; the rows under it
+        // hang past the marker
+        for (k, r) in crate::text::wrap_first(
             &inline(th, rest, base, links),
+            max.max(1),
             max.saturating_sub(hang).max(1),
         )
         .into_iter()

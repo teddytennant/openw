@@ -609,3 +609,128 @@ fn typing_during_a_turn_drops_the_interrupt_hint() {
     hn.type_str("next");
     assert!(!hn.render().plain().contains("esc to interrupt"));
 }
+
+#[test]
+fn a_prompt_sent_right_after_shift_tab_waits_for_the_mode() {
+    let mut hn = harness();
+    hn.press(KeyCode::BackTab);
+    hn.type_str("please write");
+    hn.press(KeyCode::Enter);
+    assert_eq!(
+        hn.sent(),
+        [Request::SetMode("accept edits".into())],
+        "only the mode change goes out"
+    );
+    assert!(
+        hn.render().plain().contains("accept edits on"),
+        "the footer shows the pressed mode"
+    );
+    mode_confirmed(&mut hn, "accept edits");
+    assert_eq!(hn.sent(), [Request::Prompt("please write".into())]);
+}
+
+#[test]
+fn a_mode_change_wizard_refuses_does_not_wedge_the_queue() {
+    let mut hn = harness();
+    hn.press(KeyCode::BackTab);
+    hn.type_str("please write");
+    hn.press(KeyCode::Enter);
+    hn.sent();
+    // an unrelated config update is not the answer
+    let cfg = hn.app.cfg.clone();
+    hn.event(Event::ConfigChanged(cfg));
+    assert!(hn.app.modes_pending());
+    hn.event(Event::Notice {
+        level: NoticeLevel::Error,
+        text: "Could not change the setting: no such mode".into(),
+    });
+    assert!(!hn.app.modes_pending());
+    assert!(
+        hn.sent().is_empty(),
+        "the held prompt is not sent in the old mode"
+    );
+    assert_eq!(
+        hn.app.editor.text(),
+        "please write",
+        "it comes back to the input"
+    );
+}
+
+#[test]
+fn btw_answers_in_a_panel_and_leaves_the_transcript_alone() {
+    let mut hn = harness();
+    let before = hn.app.blocks.len();
+    hn.type_str("/btw what is 2+2");
+    hn.press(KeyCode::Enter);
+    assert_eq!(hn.sent(), [Request::Prompt("/btw what is 2+2".into())]);
+    hn.event(Event::TurnStart);
+    hn.event(Event::Notice {
+        level: NoticeLevel::Info,
+        text: "2 + 2 = 4.".into(),
+    });
+    hn.event(Event::TurnEnd(StopReason::EndTurn));
+    let screen = hn.render().plain();
+    assert!(screen.contains("/btw what is 2+2"), "{screen}");
+    assert!(screen.contains("2 + 2 = 4."), "{screen}");
+    assert!(screen.contains("↑/↓ to scroll · Esc to close"), "{screen}");
+    hn.press(KeyCode::Esc);
+    assert_eq!(hn.app.blocks.len(), before, "{:?}", hn.app.blocks);
+}
+
+#[test]
+fn plan_command_enables_plan_mode_through_the_mode_steps() {
+    let mut hn = harness();
+    hn.app.cfg.modes = vec!["genie".into(), "sovereign".into(), "chat".into()];
+    hn.app.cfg.mode = "chat".into();
+    hn.app.submit("/plan".into());
+    assert_eq!(hn.sent(), [Request::SetMode("genie".into())]);
+    assert!(hn.render().plain().contains("Enabled plan mode"));
+}
+
+#[test]
+fn esc_on_a_plan_keeps_the_effort_notice() {
+    let mut hn = harness();
+    hn.app.submit("please plan".into());
+    hn.event(Event::TurnStart);
+    hn.event(Event::Permission(agent_core::PermissionRequest {
+        id: "1".into(),
+        tool: "exit_plan".into(),
+        kind: agent_core::ToolKind::Other,
+        title: "Ready to code?".into(),
+        input: serde_json::json!({ "plan": "1. x" }),
+        diff: None,
+        rule: String::new(),
+    }));
+    hn.press(KeyCode::Esc);
+    hn.event(Event::TurnEnd(StopReason::Cancelled));
+    assert!(hn.app.notice.is_some(), "{:?}", hn.app.notice);
+}
+
+#[test]
+fn a_resumed_prompt_and_its_tool_keep_their_gap() {
+    let mut hn = harness();
+    hn.event(Event::History {
+        session_id: "s".into(),
+        items: vec![
+            agent_core::HistoryItem::User("edit it".into()),
+            agent_core::HistoryItem::Tool(agent_core::ToolCall {
+                id: "t".into(),
+                name: "edit_file".into(),
+                kind: agent_core::ToolKind::Edit,
+                title: "main.rs".into(),
+                input: serde_json::json!({ "path": "main.rs" }),
+                status: agent_core::ToolStatus::Failed,
+                output: Some("Error: not found".into()),
+                diff: None,
+                parent_id: None,
+            }),
+        ],
+    });
+    let screen = hn.render().plain();
+    let lines: Vec<&str> = screen.lines().collect();
+    let at = lines
+        .iter()
+        .position(|l| l.starts_with("❯ edit it"))
+        .expect("prompt");
+    assert_eq!(lines[at + 1].trim(), "", "{screen}");
+}

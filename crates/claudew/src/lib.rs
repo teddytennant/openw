@@ -5,6 +5,7 @@
 
 pub mod app;
 pub mod replay;
+pub mod term;
 pub mod text;
 pub mod theme;
 pub mod ui;

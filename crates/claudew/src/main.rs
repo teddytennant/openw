@@ -179,7 +179,14 @@ async fn real_main(opts: AppOpts) -> Result<()> {
     std::thread::spawn(claudew::ui::diff::warm);
     let (msg_tx, msg_rx) = unbounded_channel::<Msg>();
     let (tx, fwd) = app::spawn_backend(&opts, msg_tx.clone())?;
+    let wizard = opts.backend == BackendKind::Wizard;
     let mut app = App::new(opts, tx, msg_tx.clone());
+    // the header names wizard's version from the first frame, before the session answers
+    if wizard && app.cfg.backend.is_empty() {
+        if let Some(v) = wizard_version() {
+            app.cfg.backend = format!("wizard {v}");
+        }
+    }
     let cwd = app.opts.cwd.clone();
     tokio::task::spawn_blocking(move || {
         let _ = msg_tx.send(Msg::Files(app::list_files(&cwd)));
@@ -190,7 +197,11 @@ async fn real_main(opts: AppOpts) -> Result<()> {
         ..TermOptions::default()
     })
     .context("could not set up the terminal")?;
-    let mut terminal = guard.terminal()?;
+    // the cursor is never asked for once the input reader owns stdin
+    let mut terminal = ratatui::Terminal::new(claudew::term::Quiet::new(
+        ratatui::backend::CrosstermBackend::new(std::io::stdout()),
+        false,
+    ))?;
     let result = app::run(&mut app, &mut terminal, &mut guard, msg_rx).await;
 
     // Let wizard clean up its session before the process goes away.
@@ -200,6 +211,29 @@ async fn real_main(opts: AppOpts) -> Result<()> {
     guard.restore();
     print!("{}", app.epilogue());
     result
+}
+
+/// `wizard --version`'s number, or nothing if it does not answer within a second.
+fn wizard_version() -> Option<String> {
+    let bin = std::env::var_os("OPENW_WIZARD_BIN")
+        .filter(|b| !b.is_empty())
+        .unwrap_or_else(|| "wizard".into());
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let out = std::process::Command::new(bin)
+            .arg("--version")
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output();
+        let _ = tx.send(out);
+    });
+    let out = rx
+        .recv_timeout(std::time::Duration::from_secs(1))
+        .ok()?
+        .ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let v = text.split_whitespace().last()?.to_string();
+    v.chars().next()?.is_ascii_digit().then_some(v)
 }
 
 fn main() -> ExitCode {

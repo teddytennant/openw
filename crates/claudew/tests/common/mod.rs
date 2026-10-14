@@ -61,8 +61,9 @@ impl Harness {
     /// A started app at `w` x `h` with the head of `script` (config, commands) delivered.
     pub fn new(script: &str, w: u16, h: u16) -> Harness {
         std::env::set_var("HOME", "/home/someone");
+        // the references were captured with EDITOR=nvim
         std::env::remove_var("VISUAL");
-        std::env::remove_var("EDITOR");
+        std::env::set_var("EDITOR", "nvim");
         let (tx, requests) = unbounded_channel();
         let (mtx, msgs) = unbounded_channel();
         let opts = AppOpts {
@@ -171,6 +172,15 @@ pub fn reference(name: &str) -> Buffer {
                         break;
                     }
                     params.push(p);
+                }
+                continue;
+            }
+            // an OSC sequence (a hyperlink) carries no cells: skip to its terminator
+            if c == '\x1b' && chars.peek() == Some(&']') {
+                while let Some(p) = chars.next() {
+                    if p == '\x07' || (p == '\x1b' && chars.next_if_eq(&'\\').is_some()) {
+                        break;
+                    }
                 }
                 continue;
             }

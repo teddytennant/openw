@@ -33,6 +33,18 @@ pub fn draw(buf: &mut Buffer, app: &mut App, dialog: &Dialog) -> u16 {
         Dialog::Resume { sel, query } => resume(app, *sel, query, w as usize, h as usize),
         Dialog::Rewind { sel } => rewind(app, *sel, w as usize, h as usize),
         Dialog::RewindConfirm { nth, sel } => rewind_confirm(app, *nth, *sel, w as usize),
+        Dialog::Btw {
+            question,
+            answer,
+            scroll,
+        } => btw(
+            app,
+            question,
+            answer.as_deref(),
+            *scroll,
+            w as usize,
+            h as usize,
+        ),
         Dialog::Search { query, sel } => search(app, query, *sel, w as usize),
         Dialog::Permission { .. } => return h,
     };
@@ -52,6 +64,11 @@ pub fn draw(buf: &mut Buffer, app: &mut App, dialog: &Dialog) -> u16 {
     put(buf, 0, top, &edge.repeat(w as usize), th.fg(th.suggestion));
     let notice = match dialog {
         Dialog::Model { .. } => crate::app::effort_notice_text(&app.cfg.effort),
+        // the side question's panel carries no notice on its edge
+        Dialog::Btw { .. }
+        | Dialog::Search { .. }
+        | Dialog::Rewind { .. }
+        | Dialog::RewindConfirm { .. } => None,
         _ => app.notice.clone(),
     };
     if let Some(n) = &notice {
@@ -73,7 +90,17 @@ pub fn draw(buf: &mut Buffer, app: &mut App, dialog: &Dialog) -> u16 {
             blit(buf, 0, top + 1 + i as u16, row);
         }
     }
-    top
+    // the history search keeps the cursor in its filter, after what is typed
+    if let Dialog::Search { query, .. } = dialog {
+        let row = top + 1 + panel.top.len().saturating_sub(2) as u16;
+        app.cursor = Some((6 + width(query) as u16, row));
+    }
+    // the history search sits under a blank row the transcript keeps
+    if matches!(dialog, Dialog::Search { .. }) {
+        top.saturating_sub(1)
+    } else {
+        top
+    }
 }
 
 fn indent(row: Row, n: usize) -> Row {
@@ -735,6 +762,44 @@ pub fn permission(app: &App, req: &PermissionRequest, sel: usize, w: usize) -> V
     rows
 }
 
+/// `/btw`'s panel: the question, wizard's answer, and the keys. Copy and fork are left out:
+/// the look has no clipboard path and wizard cannot fork a session.
+fn btw(
+    app: &App,
+    question: &str,
+    answer: Option<&str>,
+    scroll: usize,
+    w: usize,
+    h: usize,
+) -> Panel {
+    let th = app.theme;
+    let mut top = vec![
+        Row::new(),
+        Row::of("    ", Style::new())
+            .with("/btw", th.fg(th.warning).add_modifier(Modifier::BOLD))
+            .with(format!(" {question}"), th.dim()),
+        Row::new(),
+    ];
+    match answer {
+        Some(text) => {
+            let mut links = app.links.borrow_mut();
+            let rows = markdown::render(&th, text.trim(), w.saturating_sub(12), &mut links);
+            let room = (h / 2).saturating_sub(6).max(3);
+            let scroll = scroll.min(rows.len().saturating_sub(room));
+            for r in rows.into_iter().skip(scroll).take(room) {
+                top.push(indent(r, 6));
+            }
+        }
+        None => top.push(Row::of("      Thinking…", th.dim())),
+    }
+    top.push(Row::new());
+    Panel {
+        top,
+        bottom: vec![Row::of("    ↑/↓ to scroll · Esc to close", th.dim())],
+        fill: None,
+    }
+}
+
 /// The rewind's confirm step: the prompt being gone back to, what happens, and what to do.
 fn rewind_confirm(app: &App, nth: usize, sel: usize, w: usize) -> Panel {
     let th = app.theme;
@@ -757,12 +822,12 @@ fn rewind_confirm(app: &App, nth: usize, sel: usize, w: usize) -> Panel {
         ),
         Row::new(),
     ];
-    for line in wrap_str(&prompt, Style::new(), w.saturating_sub(6)) {
+    for line in wrap_str(&prompt, Style::new(), w.saturating_sub(8)) {
         top.push(
             Row::of("   ", Style::new())
                 .with("│", bar)
                 .with(" ", Style::new())
-                .with(line.text(), Style::new()),
+                .with(line.text(), th.fg(th.user_fg)),
         );
     }
     top.push(
@@ -777,14 +842,37 @@ fn rewind_confirm(app: &App, nth: usize, sel: usize, w: usize) -> Panel {
         "   The conversation will be truncated here.",
         th.dim(),
     ));
-    let code = if app.changes_after(nth).is_empty() {
-        "   The code will be unchanged."
-    } else {
-        "   The code will be restored to how it was."
-    };
-    top.push(Row::of(code, th.dim()));
+    // what going back undoes in the files: the later turns' added lines go, removed ones return
+    let files = app.changes_after(nth);
+    match files.as_slice() {
+        [] => top.push(Row::of("   The code will be unchanged.", th.dim())),
+        [(file, added, removed)] => {
+            let mut row = Row::of("   The code will be restored ", th.dim());
+            if *added > 0 {
+                row.push(format!("-{added}"), th.fg(Color::Indexed(174)));
+            }
+            if *removed > 0 {
+                if *added > 0 {
+                    row.push(" ", th.dim());
+                }
+                row.push(format!("+{removed}"), th.fg(Color::Indexed(72)));
+            }
+            row.push(format!(" in {file}."), th.dim());
+            top.push(row);
+        }
+        many => top.push(Row::of(
+            format!("   The code will be restored in {} files.", many.len()),
+            th.dim(),
+        )),
+    }
     top.push(Row::new());
+    let restores_code = !app.changes_after(nth).is_empty();
     for (i, label) in crate::app::REWIND_CHOICES.iter().enumerate() {
+        let label = if i == 0 && restores_code {
+            "Restore code and conversation"
+        } else {
+            label
+        };
         let on = i == sel;
         top.push(
             Row::of(if on { "   ❯ " } else { "     " }, accent)
@@ -792,6 +880,14 @@ fn rewind_confirm(app: &App, nth: usize, sel: usize, w: usize) -> Panel {
                 .with(" ", Style::new())
                 .with(label.to_string(), if on { accent } else { Style::new() }),
         );
+    }
+    // wizard's checkpoints hold what its own tools changed, as the reference's do
+    if restores_code {
+        top.push(Row::new());
+        top.push(Row::of(
+            "   ⚠ Rewinding does not affect files edited manually or via bash.",
+            th.dim(),
+        ));
     }
     Panel {
         top,
@@ -814,12 +910,15 @@ fn rewind(app: &App, sel: usize, w: usize, h: usize) -> Panel {
         ),
         Row::new(),
     ];
-    // each prompt takes three rows (itself, what it changed, a gap); the newest few fit
-    let room = ((h / 2).saturating_sub(12) / 3).max(1) + 1;
+    // each prompt takes three rows (itself, what it changed, a gap); the panel's height is
+    // fixed by how many fit, and a row above and below is kept for the overflow counts
+    let room = ((h / 2).saturating_sub(12) / 3).max(1);
     let first = (sel + 1).saturating_sub(room).min(n.saturating_sub(room));
-    if first > 0 {
-        top.push(Row::of(format!("     ↑ {first} more"), th.dim()));
-    }
+    top.push(if first > 0 {
+        Row::of(format!("     ↑ {first} more"), th.dim())
+    } else {
+        Row::new()
+    });
     #[allow(clippy::needless_range_loop)]
     for i in first..n.min(first + room) {
         let on = i == sel;
@@ -842,7 +941,7 @@ fn rewind(app: &App, sel: usize, w: usize, h: usize) -> Panel {
             } else {
                 Style::new()
             };
-            lead.with(truncate(line, w.saturating_sub(8)), st)
+            lead.with(truncate(line, w.saturating_sub(10)), st)
         };
         top.push(row);
         if i + 1 < n {
@@ -868,16 +967,22 @@ fn rewind(app: &App, sel: usize, w: usize, h: usize) -> Panel {
         top.push(Row::new());
     }
     let below = n.saturating_sub(first + room);
-    if below > 0 {
-        top.push(Row::of(format!("     ↓ {below} more"), th.dim()));
-    }
+    let more = if below > 0 {
+        Row::of(format!("     ↓ {below} more"), th.dim())
+    } else {
+        Row::new()
+    };
     Panel {
         top,
-        bottom: vec![Row::of(
-            "   Enter to continue · Esc to cancel",
-            th.dim().add_modifier(Modifier::ITALIC),
-        )],
-        fill: None,
+        bottom: vec![
+            more,
+            Row::new(),
+            Row::of(
+                "   Enter to continue · Esc to cancel",
+                th.dim().add_modifier(Modifier::ITALIC),
+            ),
+        ],
+        fill: Some(h.saturating_sub(9 + 3 * room) as u16),
     }
 }
 
@@ -961,7 +1066,8 @@ fn search(app: &App, query: &str, sel: usize, w: usize) -> Panel {
     top.push(Row::of(format!("  ╭{}╮", "─".repeat(inner)), accent));
     let mut field = Row::of("  │", accent).with(" ", Style::new());
     if query.is_empty() {
-        field.push("⌕ Filter history…", th.dim());
+        field.push("⌕ ", Style::new());
+        field.push("Filter history…", th.dim());
     } else {
         field.push(format!("⌕ {query}"), Style::new());
     }

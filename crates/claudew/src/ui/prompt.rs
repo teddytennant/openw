@@ -200,11 +200,13 @@ fn footer_row(app: &App) -> Row {
     }
     let cycle = " (shift+tab to cycle)";
     // no session yet, so no modes to name
-    let (shown, plan) = (app.cfg.mode.clone(), app.plan);
+    // the mode pressed for, at once as the reference shows it: nothing is sent until wizard
+    // confirms it (prompts wait in the queue), so the footer cannot run ahead of a prompt
+    let (shown, plan) = app.shown_mode();
     if app.cfg.modes.is_empty() && !plan {
         return row.with("? for shortcuts", th.dim());
     }
-    let first = match app.mode_index() {
+    let first = match app.shown_index() {
         None => {
             row.push("⏸ plan mode on", th.fg(th.plan));
             row.push(cycle, th.dim());
