@@ -97,33 +97,68 @@ TURN3 = [
 
 # Real wizard behind the look, answering from tools/fake_openai.py: the last word of each
 # prompt picks the fake model's answer. live.py checks these captures.
+def plan_round(scene, answer, snaps=True):
+    """Ask for a plan, wait for the approval pane, answer it and let the turn end."""
+    return (scene, [('type', 'please plan'), ('keys', 'Enter'), ('until', r'Ready to code', 30),
+                    ('wait', 0.5), ('snap', '-ask')] + answer + [('idle',), ('wait', 0.5), ('snap', '')])
+
+
 LIVE = [
     ('live-home', [('wait', 1.0), ('snap', '')]),
     ('live-edit', [('type', 'please edit'), ('keys', 'Enter'), ('idle',), ('wait', 1.0), ('snap', '')]),
+    ('live-badedit', [('type', 'please badedit'), ('keys', 'Enter'), ('idle',), ('wait', 1.0), ('snap', '')]),
     ('live-interrupt', [('type', 'please slow'), ('keys', 'Enter'), ('wait', 2.0),
                         ('fast_keys', 'Escape'), ('wait', 1.0), ('idle',), ('snap', '')]),
     ('live-queue', [('type', 'please slow'), ('keys', 'Enter'), ('wait', 1.5), ('type', 'queued one'),
                     ('fast_keys', 'Enter'), ('wait', 1.0), ('raw_snap', ''), ('fast_keys', 'Escape'),
                     ('wait', 1.0), ('idle',), ('snap', '-esc')]),
-    ('live-plan', [('type', '/plan'), ('keys', 'Enter'), ('wait', 1.5), ('type', 'please plan'),
-                   ('keys', 'Enter'), ('until', r'Ready to code', 30), ('wait', 0.5), ('snap', ''),
-                   ('keys', 'Down'), ('snap', '-down'), ('keys', 'Enter'), ('idle',), ('snap', '-kept'),
-                   ('type', '/plan'), ('keys', 'Enter'), ('wait', 1.5)]),
+    # the three answers to a plan, in plan mode reached with /plan: keep planning and Esc stay
+    # in plan mode, approving leaves it
+    ('live-plan-on', [('type', '/plan'), ('keys', 'Enter'), ('wait', 1.5)]),
+    plan_round('live-plan-keep', [('keys', 'Down'), ('snap', '-down'), ('keys', 'Enter')]),
+    plan_round('live-plan-esc', [('fast_keys', 'Escape')]),
+    plan_round('live-plan-approve', [('keys', 'Enter')]),
+    # plan reached by shift+tab: genie, sovereign, chat, then plan on genie
+    ('live-plan-tab', [('keys', 'BTab'), ('wait', 1.5), ('keys', 'BTab'), ('wait', 1.5), ('keys', 'BTab'),
+                       ('wait', 2.0), ('snap', '-footer'), ('type', 'please plan'), ('keys', 'Enter'),
+                       ('until', r'Ready to code', 30), ('wait', 0.5), ('snap', ''), ('fast_keys', 'Escape'),
+                       ('idle',), ('keys', 'BTab'), ('wait', 2.0)]),
+    # a prompt queued behind two shift+tabs (to chat) during a turn
+    ('live-queue-mode', [('type', 'please slow'), ('keys', 'Enter'), ('wait', 1.5), ('fast_keys', 'BTab'),
+                         ('wait', 0.3), ('fast_keys', 'BTab'), ('wait', 0.3), ('type', 'please write'),
+                         ('fast_keys', 'Enter'), ('wait', 1.0), ('raw_snap', ''), ('fast_keys', 'Escape'),
+                         ('wait', 2.0), ('idle',), ('wait', 1.0), ('snap', '-done')]),
     # two presses well inside a second: the second lands while wizard is still on the first
     ('live-modes', [('fast_keys', 'BTab'), ('wait', 0.3), ('fast_keys', 'BTab'), ('wait', 3.0),
                     ('snap', '-1'), ('type', 'say ok'), ('keys', 'Enter'), ('idle',), ('snap', '-turn'),
                     ('type', '/status'), ('keys', 'Enter'), ('wait', 1.5), ('snap', '-status'),
-                    ('keys', 'Escape'), ('wait', 0.5)]),
+                    ('keys', 'Escape'), ('wait', 0.5), ('snap', '-dismissed')]),
+    ('live-rewind', [('fast_keys', 'Escape'), ('wait', 0.2), ('fast_keys', 'Escape'), ('wait', 1.5),
+                     ('snap', '-list'), ('keys', 'Up'), ('keys', 'Enter'), ('wait', 1.0), ('snap', ''),
+                     ('keys', 'Escape'), ('wait', 0.8), ('snap', '-back'), ('keys', 'Escape'), ('wait', 0.5)]),
     ('live-resume', [('type', '/resume'), ('keys', 'Enter'), ('wait', 2.0), ('snap', ''),
                      ('keys', 'Escape'), ('wait', 0.5)]),
     ('live-search', [('keys', 'C-r'), ('wait', 1.0), ('snap', ''), ('keys', 'Escape'), ('wait', 0.5)]),
     ('live-exit', [('quit',), ('wait', 0.5), ('snap', '')]),
 ]
 
-# Wizard with no working provider: the session never starts.
+# Another project sharing the same history file.
+LIVE_OTHER = [
+    ('live-other', [('type', 'say other'), ('keys', 'Enter'), ('idle',), ('quit',), ('wait', 0.5)]),
+]
+
+# A new session that opens the first one with /resume.
+LIVE_RESUMED = [
+    ('live-resumed', [('wait', 1.0), ('type', '/resume'), ('keys', 'Enter'), ('wait', 2.0), ('snap', '-list'),
+                      ('keys', 'Enter'), ('wait', 3.0), ('snap', '')]
+                     + [x for n in range(1, 13) for x in (('keys', 'PPage'), ('wait', 0.6), ('snap', '-up%d' % n))]
+                     + [('quit',), ('wait', 0.5)]),
+]
+
+# Wizard with no working provider: the session never starts. Up walks this project's history.
 LIVE_FAIL = [
-    # a new session: Up brings back the last prompt of the one before
     ('live-fail', [('wait', 2.0), ('snap', ''), ('keys', 'Up'), ('wait', 0.5), ('snap', '-up'),
+                   ('keys', 'Up'), ('wait', 0.5), ('snap', '-up2'),
                    ('keys', 'Escape', 'Escape'), ('wait', 0.5), ('type', 'hello'), ('keys', 'Enter'), ('wait', 1.5),
                    ('snap', '-typed'), ('quit',), ('wait', 0.5), ('snap', '-exit')]),
 ]
@@ -176,7 +211,8 @@ WIZARD = [
 ]
 
 GROUPS = {'mention': [s for s in STATIC if s[0] == 'mention'], 'static': STATIC, 'turn': TURN, 'light': LIGHT, 'turn2': TURN2, 'turn3': TURN3,
-          'wizard': WIZARD, 'live': LIVE, 'live-fail': LIVE_FAIL}
+          'wizard': WIZARD, 'live': LIVE, 'live-other': LIVE_OTHER,
+          'live-resumed': LIVE_RESUMED, 'live-fail': LIVE_FAIL}
 
 
 def tmux(*args, check=True):
@@ -196,6 +232,8 @@ class Pane:
         tmux('-f', '/dev/null', 'new-session', '-d', '-s', name, '-x', str(w), '-y', str(h), '-c', cwd,
              'env', '-i', 'HOME=' + os.environ['HOME'], 'PATH=' + os.environ['PATH'],
              'USER=' + os.environ.get('USER', ''), 'LANG=en_US.UTF-8', 'TERM=tmux-256color',
+             # what tmux itself sets in a pane; both programs decide on hyperlinks from it
+             'TERM_PROGRAM=tmux',
              'SHELL=/bin/sh', *EXTRA_ENV, 'sh')
         for opt, val in (('status', 'off'), ('escape-time', '0'), ('focus-events', 'on'),
                          ('mouse', 'on'), ('history-limit', '2000')):
@@ -273,7 +311,7 @@ class Pane:
         tmux('kill-session', '-t', self.name, check=False)
 
 
-def run(target, cmd, cwd, size, group, out):
+def run(target, cmd, cwd, size, group, out, prefix=''):
     w, h = (int(x) for x in size.split('x'))
     pane = Pane('%s-%s' % (target, size), w, h, cwd, cmd)
     t = pane.wait_for(r'^❯|Yes, I trust this folder|could not start', 40)
@@ -314,9 +352,9 @@ def run(target, cmd, cwd, size, group, out):
             elif op == 'until':
                 pane.wait_for(step[1], step[2])
             elif op == 'raw_snap':
-                pane.snap(os.path.join(out, '%s%s-%s' % (scene, step[1], size)), settle=False)
+                pane.snap(os.path.join(out, '%s%s%s-%s' % (prefix, scene, step[1], size)), settle=False)
             elif op == 'snap':
-                pane.snap(os.path.join(out, '%s%s-%s' % (scene, step[1], size)))
+                pane.snap(os.path.join(out, '%s%s%s-%s' % (prefix, scene, step[1], size)))
         time.sleep(0.8)
     pane.kill()
 
@@ -330,12 +368,13 @@ def main():
     ap.add_argument('--group', choices=sorted(GROUPS), default='static')
     ap.add_argument('--sizes', default=','.join(SIZES))
     ap.add_argument('--before', default='', help='shell command run before each size (reset files)')
+    ap.add_argument('--prefix', default='', help='put this in front of every capture name')
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     for size in a.sizes.split(','):
         if a.before:
             subprocess.run(a.before, shell=True, check=True, cwd=a.cwd)
-        run(a.target, a.cmd, a.cwd, size, a.group, a.out)
+        run(a.target, a.cmd, a.cwd, size, a.group, a.out, a.prefix)
         print('%s %s %s: captured' % (a.target, a.group, size), flush=True)
 
 

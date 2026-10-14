@@ -12,10 +12,11 @@ else is a mismatch. Exit status is 1 when any scene has one.
 import argparse, fnmatch, glob, os, re, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import cells
 from cells import parse, visible, fmt
 
 VERSION = ''
-BLANK = (' ', (None, None, False, False, False, False, False, False))
+BLANK = (' ', (None, None, False, False, False, False, False, False, None))
 
 # (pattern, replacement). Applied to each row's text on both sides; the replacement takes the
 # style of the first cell it replaces and the rest of the row shifts to fit. Only what changes
@@ -57,6 +58,9 @@ NOT_COMPARED = [
     ('bash-permission', 'Wizard never asks before a command'),
     ('bash-esc', 'turning a command down at a prompt Wizard never shows'),
 ]
+
+# The turns run again with hyperlinks on (FORCE_HYPERLINK=1): the scenes where a link shows.
+LINK_SCENES = {'links-edit-done', 'links-md', 'links-write-done', 'links-turn-done'}
 
 # (scene glob, which side the pattern is looked for on, row pattern, reason). The matched span
 # of the row is left out of the diff on both sides. A pattern ending in `$$` masks from the
@@ -297,10 +301,12 @@ def main():
     ap.add_argument('--report')
     ap.add_argument('--sizes', default='80x24,120x40,200x50')
     ap.add_argument('--version', required=True, help="the wizard version the replay reports, which the look must show")
+    ap.add_argument('--cwd', help='link targets under this directory compare as relative paths')
     ap.add_argument('--rules', default=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'explained.tsv'))
     a = ap.parse_args()
     global VERSION
     VERSION = a.version
+    cells.BASE = a.cwd
     sizes = a.sizes.split(',')
     extra = load_rules(a.rules)
     scenes = sorted({os.path.basename(p).rsplit('-', 1)[0] for p in glob.glob(os.path.join(a.ref, '*.ansi'))})
@@ -312,6 +318,8 @@ def main():
     skipped = []
     for scene in scenes:
         why = next((r for g, r in NOT_COMPARED if fnmatch.fnmatch(scene, g)), None)
+        if scene.startswith('links-') and scene not in LINK_SCENES:
+            why = 'hyperlink run: only the scenes that show links are compared'
         if why:
             skipped.append((scene, why))
             continue

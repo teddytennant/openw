@@ -4,7 +4,7 @@
     fake_openai.py PORT PROJECT_DIR LOG
 
 The last word of the user's message picks the answer: md, long, slow, bash, git, read, edit,
-write, plan; anything else gets "ok". A tool result always gets "done".
+badedit, write, plan; anything else gets "ok". A tool result always gets "done".
 """
 import json, sys, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -113,6 +113,10 @@ class H(BaseHTTPRequestHandler):
             fin = 'tool_calls'
         elif key == 'edit':
             self.tool(pick(tools, 'edit_file', 'edit', 'str_replace'), {'path': CWD + '/main.rs', 'old_string': 'hello', 'new_string': 'hi', 'old': 'hello', 'new': 'hi'})
+            fin = 'tool_calls'
+        elif key == 'badedit':
+            # an edit that cannot apply: its text is not in the file
+            self.tool(pick(tools, 'edit_file', 'edit', 'str_replace'), {'path': CWD + '/main.rs', 'old_string': 'not in the file', 'new_string': 'x', 'old': 'not in the file', 'new': 'x'})
             fin = 'tool_calls'
         elif key == 'plan' and 'exit_plan' in tools:
             self.tool('exit_plan', {'plan': '1. Add `// entry point` as the first line of main.rs.\n2. Save the file.'})

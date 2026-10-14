@@ -12,7 +12,7 @@ cell. It says nothing about how the look handles Wizard's own data; the wizard-*
 The version the replay reports is the one a real wizard reported in that recorded session;
 OUT_DIR/version.txt holds it for compare.py.
 """
-import json, os, re, sys, time
+import json, os, re, sys, time, zlib
 
 ANSI = re.compile(r'\x1b\[[0-9;]*m|\x1b\][^\x07\x1b]*(\x07|\x1b\\)')
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -99,19 +99,30 @@ def models(ref):
 def sessions(ref, cwd, now, size):
     out, lines = [], rows(ref, 'resume', size)
     unit = {'second': 1, 'minute': 60, 'hour': 3600, 'day': 86400}
+    total = 0
+    for line in lines:
+        m = re.search(r'Resume session \((\d+) of (\d+)\)', line)
+        if m:
+            total = int(m.group(2))
     for i, line in enumerate(lines[:-1]):
         m = re.match(r'^     (\d+) (second|minute|hour|day)s? ago', lines[i + 1])
         if m and re.match(r'^   [❯↓↑ ] \S', line):
             title = line[5:].strip()
             is_id = re.fullmatch(r'[0-9a-f]{8}', title) is not None
+            # the same session gets the same id at every size: from its title and age
+            key = '%s|%s' % (title, lines[i + 1].strip())
             out.append({
-                'id': (title if is_id else '%08x' % (i * 2654435761 % 2**32)) + '-0000-4000-8000-000000000000',
+                'id': (title if is_id else '%08x' % (zlib.crc32(key.encode()) & 0xffffffff)) + '-0000-4000-8000-000000000000',
                 'title': '' if is_id else title,
                 'cwd': cwd,
-                # seconds before the replay reads it, so the age is the same when the panel opens
+                # seconds before the replay lists it, so the age is the same when the panel opens
                 'updated': -int(m.group(1)) * unit[m.group(2)] - 2,
                 'bytes': size_of(lines[i + 1]),
             })
+    # the rest of the reference's list, which its window never reaches, so the count shows
+    for n in range(len(out), total):
+        out.append({'id': '%08x-0000-4000-8000-000000000000' % (0x5e55 + n), 'title': 'older session %d' % n,
+                    'cwd': cwd, 'updated': -40 * 86400 - n, 'bytes': 0})
     return out
 
 
@@ -164,22 +175,31 @@ def tool(id_, kind, title, inp, status, output=None, diff=None, name=None):
 
 
 def find_command(ref, cwd, size):
-    """The search command the reference ran at this size, read off its detailed transcript."""
+    """The search command the reference ran at this size, and what it printed, read off its
+    detailed transcript."""
     path = os.path.join(ref, 'edit-detail-%s.ansi' % size)
-    if os.path.exists(path):
-        lines = [ANSI.sub('', l).rstrip() for l in open(path, encoding='utf-8').read().split('\n')]
-        for i, line in enumerate(lines):
-            if line.startswith('● Bash(find '):
-                text = line[len('● Bash('):]
-                for more in lines[i + 1:]:
-                    if not more.startswith('      '):
-                        break
-                    text += ' ' + more.strip()
-                return text[:-1] if text.endswith(')') else text
-    return "find %s -name main.rs -not -path '*/target/*' 2>/dev/null" % cwd
+    default = "find %s -name main.rs -not -path '*/target/*' 2>/dev/null" % cwd
+    if not os.path.exists(path):
+        return default, cwd + '/main.rs\n'
+    lines = [ANSI.sub('', l).rstrip() for l in open(path, encoding='utf-8').read().split('\n')]
+    for i, line in enumerate(lines):
+        if line.startswith('● Bash(find '):
+            text = line[len('● Bash('):]
+            j = i + 1
+            while j < len(lines) and lines[j].startswith('      '):
+                text += ' ' + lines[j].strip()
+                j += 1
+            output = []
+            while j < len(lines) and (lines[j].startswith('  ⎿') or (output and lines[j].startswith('     '))):
+                output.append(lines[j][5:].strip())
+                j += 1
+            cmd = text[:-1] if text.endswith(')') else text
+            return cmd, '\n'.join(output) + '\n' if output else cwd + '/main.rs\n'
+    return default, cwd + '/main.rs\n'
 
 
-def turn(cwd, find):
+def turn(cwd, found):
+    find, find_out = found
     path = cwd + '/main.rs'
     old = 'fn main() {\n    println!("hello");\n}\n'
     new = 'fn main() {\n    println!("hi");\n}\n'
@@ -193,7 +213,7 @@ def turn(cwd, find):
         tool('t1', 'execute', 'Printing hi', {'command': 'echo hi'}, 'completed', 'hi\n'),
         ev({'TextDelta': 'done'}), end,
         wait('prompt'), ev('TurnStart'), sleep(300),
-        tool('t2', 'execute', 'Finding main.rs', {'command': find}, 'completed', path + '\n'),
+        tool('t2', 'execute', 'Finding main.rs', {'command': find}, 'completed', find_out),
         tool('t3', 'read', 'main.rs', {'path': path}, 'completed', old),
         tool('t4', 'edit', 'main.rs', {'path': path}, 'pending', None, diff),
         ev({'Permission': {'id': 'p1', 'tool': 'Edit', 'kind': 'edit', 'title': path, 'input': {},
@@ -392,10 +412,14 @@ def main():
     os.makedirs(out, exist_ok=True)
     open(os.path.join(out, 'version.txt'), 'w').write(WIZARD_VERSION + '\n')
     # wizard's session files, as big as the reference said, for the sizes the picker shows
-    with open(os.path.join(out, 'session-files.tsv'), 'w') as f:
-        for s in sessions(ref, cwd, 0, '200x50'):
+    files = {}
+    for size in SIZES:
+        for s in sessions(ref, cwd, 0, size):
             if s['bytes']:
-                f.write('%s\t%d\n' % (s['id'], s['bytes']))
+                files[s['id']] = s['bytes']
+    with open(os.path.join(out, 'session-files.tsv'), 'w') as f:
+        for id_, size in files.items():
+            f.write('%s\t%d\n' % (id_, size))
     for size in ('80x24', '120x40', '200x50'):
         h = head(ref, cwd, size)
         open(os.path.join(out, 'static-%s.jsonl' % size), 'w', encoding='utf-8').write('\n'.join(h) + '\n')

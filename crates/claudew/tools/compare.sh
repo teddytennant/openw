@@ -30,16 +30,17 @@ sizes=${SIZES:-80x24,120x40,200x50}
 # and its length decides wraps, so both programs run in exactly this path.
 cwd=/tmp/claude-1000/-home-owner/00000000-0000-0000-0000-000000000000/scratchpad/look-claude/proj
 reset() {
-    # what a wizard or claude run leaves in the project would show in the @ menu
-    rm -rf "$cwd/.wizard" "$cwd/.claude"
-    mkdir -p "$cwd/src"
+    # a project wizard has run in has .wizard/, and the @ menu lists it; claude's own
+    # .claude/ would not be there in real use
+    rm -rf "$cwd/.claude"
+    mkdir -p "$cwd/.wizard" "$cwd/src"
     printf 'fn main() {\n    println!("hello");\n}\n' > "$cwd/main.rs"
     printf '# notes\n\nalpha\nbeta\n' > "$cwd/notes.md"
     echo 'pub fn add(a: i32, b: i32) -> i32 { a + b }' > "$cwd/src/lib.rs"
 }
 reset
 (cd "$root" && cargo build -q -p claudew)
-bin="$root/target/debug/claudew"
+bin="${CARGO_TARGET_DIR:-$root/target}/debug/claudew"
 
 if [ "${REF:-}" = live ]; then
     ref="$work/ref"
@@ -53,6 +54,11 @@ if [ "${REF:-}" = live ]; then
         --before "rm -rf w.txt .git"
     python3 "$here/drive.py" --target ref --cmd "$cmd --settings '{\"tui\":\"fullscreen\"}'" --cwd "$cwd" --out "$ref" --group turn3 --sizes 80x24,120x40 \
         --before "printf 'fn main() {\n    println!(\"hello\");\n}\n' > main.rs"
+    # the edit and markdown turns again with hyperlinks on, so the OSC 8 targets get compared
+    LOOK_ENV=FORCE_HYPERLINK=1 python3 "$here/drive.py" --target ref --cmd "$cmd --settings '{\"tui\":\"fullscreen\"}'" --cwd "$cwd" --out "$ref" --group turn --sizes 120x40 --prefix links- \
+        --before "printf 'fn main() {\n    println!(\"hello\");\n}\n' > main.rs"
+    LOOK_ENV=FORCE_HYPERLINK=1 python3 "$here/drive.py" --target ref --cmd "$cmd --settings '{\"tui\":\"fullscreen\"}'" --cwd "$cwd" --out "$ref" --group turn2 --sizes 120x40 --prefix links- \
+        --before "rm -rf w.txt .git"
     # scrub what is personal: the account's address and organisation, the home directory
     python3 - "$ref" <<'PY'
 import glob, re, sys
@@ -95,14 +101,28 @@ for size in $(echo "$sizes" | tr , ' '); do
             --cmd "env HOME=$home CLAUDEW_BACKEND=replay CLAUDEW_REPLAY=$script $bin --theme $theme --cwd $cwd" > /dev/null
     done
 done
+if [ -f "$ref/links-edit-done-120x40.ansi" ]; then
+    for group in turn turn2; do
+        reset
+        rm -rf "$cwd/w.txt" "$cwd/.git"
+        LOOK_ENV=FORCE_HYPERLINK=1 python3 "$here/drive.py" --target look --cwd "$cwd" --out "$work/look" --group "$group" \
+            --sizes 120x40 --prefix links- \
+            --cmd "env HOME=$work/claude-home CLAUDEW_BACKEND=replay CLAUDEW_REPLAY=$work/replay/$group-120x40.jsonl $bin --cwd $cwd" > /dev/null
+    done
+fi
 echo "captures and report in $work"
 status=0
 python3 "$here/compare.py" "$ref" "$work/look" --report "$work/report" --sizes "$sizes" \
-    --version "$(cat "$work/replay/version.txt")" || status=1
+    --version "$(cat "$work/replay/version.txt")" --cwd "$cwd" || status=1
 
 # --version names this crate's version and the reference's
 crate_version=$(sed -n 's/^version = "\(.*\)"/\1/p' "$root/Cargo.toml" | head -1)
-claude_version=$(sed 's/\x1b\[[0-9;]*m//g' "$ref/home-80x24.ansi" | sed -n 's/.*Claude Code v\([0-9.]*\).*/\1/p' | head -1)
+# the installed claude when capturing live, the fixtures' otherwise
+if [ "${REF:-}" = live ]; then
+    claude_version=$("${CLAUDE_BIN:-claude}" --version | sed -n 's/^\([0-9][0-9.]*\).*/\1/p')
+else
+    claude_version=$(sed 's/\x1b\[[0-9;]*m//g' "$ref/home-80x24.ansi" | sed -n 's/.*Claude Code v\([0-9.]*\).*/\1/p' | head -1)
+fi
 want="wizard-ui-claude $crate_version (claude look $claude_version)"
 got=$("$bin" --version)
 if [ "$got" = "$want" ]; then

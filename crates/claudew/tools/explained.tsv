@@ -18,11 +18,6 @@ model-down	both	^   [○◐●◉] .*$	effort per model: Wizard lists one set of
 status	ref	(?<=Status ) +Config +Usage +Stats\s*$	config, usage and stats tabs: Wizard has no settings editor or usage store behind ACP
 resume*	both	^\s+(Ctrl\+A to show all projects ·|to preview|(to )?search · Esc).*$	resume picker keys: no branch filter, preview or rename in Wizard's session list
 resume*	drop	^▔@@^\s+(to preview|(to )?search · Esc).*$	resume picker keys: the reference's longer key line takes two rows, so its panel sits a row higher
-history-1	both	^❯.*$	prompt suggestion: the reference shows a model-predicted next prompt and the first Up goes to it; Wizard predicts none
-history-1	both	^─── History N/M ─+$	prompt suggestion: the reference shows a model-predicted next prompt and the first Up goes to it; Wizard predicts none
-history-1	both	(?<=manual mode on)( · \? for shortcuts)?\s*$	prompt suggestion: the reference shows a model-predicted next prompt and the first Up goes to it; Wizard predicts none
-history-back	both	^❯.*$	prompt suggestion: the reference shows a model-predicted next prompt; Wizard predicts none
-history-2	both	^❯.*$	prompt suggestion: the reference's first Up went to its predicted prompt, so its second lands one entry later
 compact	ref	^  ⎿\s+Read main\.rs \(4 lines\)\s*$	compact: Wizard's answer does not list the files it keeps in context
 compact-80x24	drop	^@@^  ⎿\s+Read main\.rs \(4 lines\)\s*$	compact: Wizard's answer does not list the files it keeps in context
 exit*	look	^\$\s*$	exit: the reference is still shutting down when the capture is taken
@@ -30,9 +25,6 @@ exit*	cursor		exit: the reference is still shutting down when the capture is tak
 md-*	both	^[● ] (?=Initialize)	the bullet of a call waiting on a permission blinks; the captures catch it in different phases
 bash-*	both	^[● ] (?=Initialize)	the bullet of a call waiting on a permission blinks; the captures catch it in different phases
 help-200x50	drop	^▔@@^   (New here\?|Something else\?).*$	powerup tip and /feedback line: Wizard has neither command
-history-1	both	(ctrl\+r to search history|[○◐●◉] \w+ · /effort)\s*$	prompt suggestion: the reference's first Up went to its predicted prompt, so it is not browsing history yet
-history-back	both	ctrl\+r to search history\s*$	prompt suggestion: the reference's first Up went to its predicted prompt, so after two Downs it is still browsing history
-history-2	both	(ctrl\+r to search history|[○◐●◉] \w+ · /effort)\s*$	prompt suggestion: the reference's first Up went to its predicted prompt, so it is one step behind in history
 help-commands*-200x50	look	^   Esc to cancel\s*$	/feedback line: on the reference it pushes Esc to cancel below the screen
 help-commands*-200x50	drop	^@@^   Something else\?.*$	/feedback line: Wizard has no such command
 help-80x24	drop	^@@^\s{45,}(ctrl \+ g to edit in|\$EDITOR|/keybindings to|customize)\s*$	paste images and /keybindings: the reference's third column has two entries Wizard does not (no image paste over ACP, fixed keys); at 80x24 that is four rows, and its last four rows go
@@ -69,3 +61,5 @@ help-80x24	both	(?<=^.{25})(edits|modes)(?=\s)	shift+tab cycles Wizard's modes; 
 plan*-80x24	ref	↓\s*$	plan cut: the reference's three options and plan-file line leave too little room for its plan, so it is cut with ↓; Wizard's two options leave room for all of it
 wz-help-commands-200x50	shape	^   Esc to cancel\s*$	/feedback line: on the reference it pushes Esc to cancel below the screen
 queue-esc	both	(?<=^\* Verb…) \(.*\)\s*$	timing: how far the queued prompt's turn has got when the capture lands (thinking, tokens) differs from run to run
+resume*-[18]*	block	^@@^▔	resume picker keys: the reference's longer key line needs a second row it has no room for, which scrolls its transcript up a row; Wizard's shorter line fits
+clear-120x40	both	[○◐●◉] \w+ · /effort\s*$	effort notice after /clear: whether it is still up depends on how long the compact before it took; the reference shows it at 120x40 only
