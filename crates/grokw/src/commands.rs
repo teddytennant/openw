@@ -798,6 +798,7 @@ pub fn run(app: &mut App, name: &str, args: &str) {
             }
         }
         "goal" => cmd_goal(app, args),
+        "fork" if !args.is_empty() => forward(app, format!("/fork {args}")),
         "fork" => say(
             app,
             "Session branching is not supported by wizard. /fork <task> starts a background task in this session instead.",
@@ -887,7 +888,7 @@ pub fn run(app: &mut App, name: &str, args: &str) {
             app,
             "Always-approve is not a setting in wizard. It runs every tool call without asking.",
         ),
-        "loop" => say(app, "/loop runs inside grokw while it is open, as ordinary turns. It stops when you quit."),
+        "loop" => unsupported(app, "/loop is not supported by grokw with wizard yet. Nothing was scheduled."),
         "hooks" => unsupported(app, "/hooks is not supported by wizard over ACP."),
         "plugins" => unsupported(app, "/plugins is not supported by wizard over ACP."),
         "marketplace" => unsupported(app, "/marketplace is not supported by wizard."),
