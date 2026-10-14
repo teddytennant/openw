@@ -125,6 +125,7 @@ impl Transcript {
                 for it in items {
                     self.replay(it);
                 }
+                self.close_replayed();
             }
             Event::TurnStart => {
                 self.busy = true;
@@ -205,16 +206,21 @@ impl Transcript {
     fn replay(&mut self, it: &HistoryItem) {
         match it {
             HistoryItem::User(t) => {
-                if let Some(m) = self.messages.last_mut() {
-                    if m.role == Role::Assistant && m.took.is_none() {
-                        m.took = Some(Duration::ZERO);
-                    }
-                }
+                self.close_replayed();
                 self.push_user(t);
             }
             HistoryItem::Assistant(t) => self.apply_quiet(Event::TextDelta(t.clone())),
             HistoryItem::Thought(t) => self.apply_quiet(Event::ThoughtDelta(t.clone())),
             HistoryItem::Tool(c) => self.apply_quiet(Event::Tool(c.clone())),
+        }
+    }
+
+    /// A replayed answer is finished: the next turn starts a message of its own.
+    fn close_replayed(&mut self) {
+        if let Some(m) = self.messages.last_mut() {
+            if m.role == Role::Assistant && m.took.is_none() {
+                m.took = Some(Duration::ZERO);
+            }
         }
     }
 
@@ -360,6 +366,24 @@ mod tests {
 
     /// Finding 10: every assistant item of a replay scanned the whole list for an open message,
     /// 15.8 s at 80,000 turns.
+    #[test]
+    fn a_turn_after_a_replayed_answer_gets_its_own_message() {
+        let mut t = Transcript::new();
+        t.apply(&Event::History {
+            session_id: "s".into(),
+            items: vec![
+                HistoryItem::User("q".into()),
+                HistoryItem::Assistant("old".into()),
+            ],
+        });
+        t.push_user("next");
+        t.apply(&Event::TurnStart);
+        t.apply(&Event::TextDelta("new".into()));
+        assert_eq!(t.messages.len(), 4);
+        assert!(matches!(&t.messages[1].parts[..], [Part::Text(s)] if s == "old"));
+        assert!(matches!(&t.messages[3].parts[..], [Part::Text(s)] if s == "new"));
+    }
+
     #[test]
     fn replaying_a_long_history_is_linear() {
         let replay = |n: usize| {
