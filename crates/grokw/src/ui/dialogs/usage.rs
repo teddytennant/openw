@@ -253,7 +253,10 @@ fn info_fields(app: &App) -> (Fields, Fields) {
     if let Some(t) = app.titles.get(&app.tr.session_id) {
         long.push(("Title:", t.clone()));
     }
-    long.push(("Shell version:", format!("{} [alpha]", app.config.version())));
+    long.push((
+        "Shell version:",
+        format!("{} [alpha]", app.config.version()),
+    ));
     long.push(("Session ID:", app.tr.session_id.clone()));
     long.push(("Working directory:", cwd_full(app)));
     let (turns, _) = turns_and_calls(app);

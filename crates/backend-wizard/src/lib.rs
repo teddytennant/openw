@@ -717,9 +717,16 @@ mod tests {
 
     #[test]
     fn a_handoff_names_the_session_to_resume() {
-        let json = r#"{"session":"2026-10-14T20-45-38","provider":"beta","model":"m","mode":"genie"}"#;
-        assert_eq!(handoff_session(Some(json)).as_deref(), Some("2026-10-14T20-45-38"));
-        assert_eq!(handoff_session(Some(r#"{"session":null,"provider":"beta"}"#)), None);
+        let json =
+            r#"{"session":"2026-10-14T20-45-38","provider":"beta","model":"m","mode":"genie"}"#;
+        assert_eq!(
+            handoff_session(Some(json)).as_deref(),
+            Some("2026-10-14T20-45-38")
+        );
+        assert_eq!(
+            handoff_session(Some(r#"{"session":null,"provider":"beta"}"#)),
+            None
+        );
         assert_eq!(handoff_session(Some("not json")), None);
         assert_eq!(handoff_session(None), None);
     }
