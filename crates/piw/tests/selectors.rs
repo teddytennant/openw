@@ -155,6 +155,10 @@ fn fix_names(rows: Vec<String>) -> Vec<String> {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn scoped_models_block_is_the_capture() {
     let mut h = H::new(three());
     h.cmd("/scoped-models");
@@ -176,6 +180,10 @@ fn scoped_models_block_is_the_capture() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn model_selector_matches_the_capture() {
     let mut h = H::new(three());
     h.cmd("/model");
@@ -223,6 +231,10 @@ fn model_selector_colours() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn theme_submenu_matches_the_capture_without_automatic() {
     let mut h = H::new(three());
     h.cmd("/settings");
@@ -311,6 +323,10 @@ fn sessions() -> Vec<SessionInfo> {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn resume_selector_header_rows_and_loading() {
     let mut h = H::new(three());
     h.app.on_event(Event::Sessions(sessions()));

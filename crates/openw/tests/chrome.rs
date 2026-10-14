@@ -22,6 +22,10 @@ fn cut(s: &str, n: usize) -> String {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn hint_row_clips_a_usage_text_that_does_not_fit_like_opencode() {
     let mut h = Harness::new(150, 42);
     h.app.cwd =

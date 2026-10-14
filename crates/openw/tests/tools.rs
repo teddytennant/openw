@@ -88,6 +88,10 @@ const MAIN_RS: &str =
     "fn main() {\n    println!(\"hi\");\n    let x = 1;\n    println!(\"{}\", x);\n}\n";
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn matches_opencode_mixed_run_at_170() {
     let seq: String = (1..=30).map(|i| format!("{i}\n")).collect();
     let step1 =
@@ -215,6 +219,10 @@ fn matches_opencode_mixed_run_at_170() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn failed_rows_are_red_and_wrap_like_opencode() {
     let mut read = call(
         "1",
@@ -258,6 +266,10 @@ fn failed_rows_are_red_and_wrap_like_opencode() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn pending_rows_start_at_column_5() {
     let mut pending = call(
         "1",
@@ -278,6 +290,10 @@ fn pending_rows_start_at_column_5() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn write_gutter_widens_with_the_line_count() {
     let nums: String = (1..=105).map(|i| format!("{i}\n")).collect();
     let mut w = tool(
@@ -313,6 +329,10 @@ fn write_gutter_widens_with_the_line_count() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn edit_hunks_use_four_lines_of_context() {
     let old: String = (1..=60).map(|i| format!("{i}\n")).collect();
     let new: String = (1..=60)
@@ -357,6 +377,10 @@ fn edit_hunks_use_four_lines_of_context() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn task_rows_and_the_subagent_hint() {
     let parent = call(
         "t",
@@ -392,6 +416,10 @@ fn task_rows_and_the_subagent_hint() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn loaded_instruction_files_are_listed_under_a_read() {
     let out = "<content>\n1: hi\n</content>\n\n<system-reminder>\nInstructions from: /p/sub/AGENTS.md\nBe brief.\n</system-reminder>";
     let r = tool(
@@ -769,6 +797,10 @@ fn question_asked_and_answered() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn running_states_match_opencode() {
     let long = "https://example.com/some-long-path-name.with.dots/and-dashes-here/and_underscores_here/more-words-more-words-more-words-more-words-more-words/x?query=1&other=2";
     let calls = vec![

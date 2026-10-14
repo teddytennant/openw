@@ -126,6 +126,10 @@ fn prompt_row(h: &Harness) -> usize {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn shortcut_overlay_matches_start_05_at_every_size() {
     for (cols, rows, size) in [
         (120u16, 36u16, "120x36"),
@@ -142,6 +146,10 @@ fn shortcut_overlay_matches_start_05_at_every_size() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn a_second_question_mark_keeps_the_overlay_and_esc_does_too() {
     let mut h = start(120, 36, 7);
     h.type_str("?");
@@ -158,6 +166,10 @@ fn a_second_question_mark_keeps_the_overlay_and_esc_does_too() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn slash_popup_matches_start_06_07_08_at_120() {
     let mut h = start(120, 36, 7);
     h.type_str("/");
@@ -177,6 +189,10 @@ fn slash_popup_matches_start_06_07_08_at_120() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn slash_popup_end_of_list_and_wrap_around() {
     let mut h = start(120, 36, 7);
     h.type_str("/");
@@ -194,6 +210,10 @@ fn slash_popup_end_of_list_and_wrap_around() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn slash_popup_wraps_descriptions_at_narrow_widths() {
     for (cols, rows, size) in [
         (150u16, 42u16, "150x42"),
@@ -208,6 +228,10 @@ fn slash_popup_wraps_descriptions_at_narrow_widths() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn slash_popup_is_clipped_when_taller_than_the_screen() {
     let mut h = start_like(40, 20, "40x20", "start-06-slash");
     h.type_str("/");
@@ -216,6 +240,10 @@ fn slash_popup_is_clipped_when_taller_than_the_screen() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn slash_filters_match_the_captures() {
     for (typed, name) in [
         ("/st", "xh-10-slash-st"),
@@ -230,6 +258,10 @@ fn slash_filters_match_the_captures() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn tab_completes_and_the_command_becomes_a_cyan_element() {
     let mut h = start(120, 36, 7);
     h.type_str("/re");
@@ -242,6 +274,10 @@ fn tab_completes_and_the_command_becomes_a_cyan_element() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn slash_element_esc_and_leading_space() {
     let mut h = start(120, 36, 7);
     h.type_str("/review ");
@@ -279,6 +315,10 @@ fn unknown_command_prints_an_info_cell_and_keeps_the_draft() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn at_popup_lists_a_file_row_with_tag_and_footer() {
     let mut h = start(120, 36, 7);
     h.app
@@ -316,6 +356,10 @@ fn typed_mention_without_the_popup_stays_plain() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn composer_geometry_exactly_full_row_and_full_row_with_space() {
     let mut h = start(120, 36, 7);
     h.type_str(&"a".repeat(117));
@@ -329,6 +373,10 @@ fn composer_geometry_exactly_full_row_and_full_row_with_space() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn multiline_draft_wraps_at_every_size() {
     for (cols, rows, size) in [
         (120u16, 36u16, "120x36"),
@@ -365,6 +413,10 @@ fn thirty_rows_grow_the_composer_one_to_one() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn editing_keys_follow_the_capture() {
     let mut h = start(120, 36, 7);
     h.type_str("hello world foo bar");
@@ -391,6 +443,10 @@ fn editing_keys_follow_the_capture() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn large_pastes_become_cyan_elements_and_expand_on_submit() {
     let mut h = start(120, 36, 7);
     h.app.on_paste(&"x".repeat(1500));
@@ -411,6 +467,10 @@ fn large_pastes_become_cyan_elements_and_expand_on_submit() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn small_paste_is_verbatim_and_two_large_ones_are_numbered() {
     let mut h = start(120, 36, 7);
     h.app.on_paste("line one\nline two\nline three");
@@ -428,6 +488,10 @@ fn small_paste_is_verbatim_and_two_large_ones_are_numbered() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn ctrl_c_clears_the_draft_and_the_next_one_quits() {
     let mut h = start(120, 36, 7);
     h.type_str("draft text");
@@ -440,6 +504,10 @@ fn ctrl_c_clears_the_draft_and_the_next_one_quits() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn esc_with_a_draft_changes_nothing() {
     let mut h = start(120, 36, 7);
     h.type_str("draft text");
@@ -489,6 +557,10 @@ impl LastFooter for Vec<String> {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn up_recalls_the_last_prompt_and_ctrl_r_searches() {
     let mut h = start(120, 36, 5);
     answered(&mut h, "first prompt fake:text");
@@ -615,6 +687,10 @@ fn bang_shell_mode_prompt_footer_and_result() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn bang_false_gets_a_red_bullet_and_esc_leaves_shell_mode() {
     let mut h = harness_with(
         120,

@@ -90,6 +90,10 @@ fn ctrl(h: &mut Harness, c: char) {
 // ---- external editor --------------------------------------------------------------------------
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn ctrl_g_puts_the_hint_in_the_footer_like_codex() {
     let mut h = started(0);
     h.type_str("draft text");
@@ -100,6 +104,10 @@ fn ctrl_g_puts_the_hint_in_the_footer_like_codex() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn what_the_editor_writes_replaces_the_draft_with_trailing_blank_lines_trimmed() {
     let mut h = started(7);
     ctrl(&mut h, 'g');
@@ -117,6 +125,10 @@ fn what_the_editor_writes_replaces_the_draft_with_trailing_blank_lines_trimmed()
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn a_missing_editor_is_an_error_cell_and_the_draft_survives() {
     let mut h = started(7);
     ctrl(&mut h, 'g');
@@ -133,6 +145,10 @@ fn a_missing_editor_is_an_error_cell_and_the_draft_survives() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn a_failing_editor_reports_its_status_in_rusts_words() {
     let mut h = started(7);
     ctrl(&mut h, 'g');
@@ -216,6 +232,10 @@ fn png_in(dir: &str) -> PathBuf {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn pasting_an_image_path_shows_a_chip_like_codex() {
     let p = png_in("chip");
     let mut h = started(7);
@@ -364,6 +384,10 @@ fn full_ref(name: &str) -> Vec<String> {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn raw_mode_rewrites_the_transcript_as_source_text_like_codex() {
     let mut h = turn(7, 60, "markdown");
     slash(&mut h, "/raw");
@@ -850,6 +874,10 @@ fn mcp_lists_the_servers_from_wizards_config() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn hooks_opens_the_events_screen_like_the_capture_and_escape_closes_it() {
     let mut h = started(7);
     slash(&mut h, "/hooks");
@@ -930,6 +958,10 @@ fn keys(h: &mut Harness, codes: &[KeyCode]) {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn statusline_picker_follows_the_capture_step_by_step() {
     let mut h = started(7);
     slash(&mut h, "/statusline");
@@ -1033,6 +1065,10 @@ fn an_empty_status_line_brings_the_hint_row_back() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn title_picker_matches_the_capture_and_the_toggle() {
     let mut h = started(7);
     slash(&mut h, "/title");
@@ -1064,6 +1100,10 @@ fn confirming_the_title_changes_what_the_terminal_shows() {
 // ---- /keymap and the key table ------------------------------------------------------------------
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn keymap_lists_the_shortcuts_like_the_capture_apart_from_fast_mode() {
     let mut h = started(7);
     slash(&mut h, "/keymap");
@@ -1129,6 +1169,10 @@ fn keymap_tabs_search_and_the_remap_refusal() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn keypress_inspector_names_a_key_and_its_actions() {
     let mut h = started(7);
     slash(&mut h, "/keymap debug");

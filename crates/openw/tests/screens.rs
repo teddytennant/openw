@@ -94,6 +94,10 @@ fn ref_rows(path: &str) -> Vec<String> {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn session_matches_reference_16_layout() {
     let mut h = Harness::new(120, 36);
     opencode_like(&mut h);
@@ -113,6 +117,10 @@ fn session_matches_reference_16_layout() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn working_state_matches_reference_15() {
     let mut h = Harness::new(120, 36);
     opencode_like(&mut h);
@@ -160,6 +168,10 @@ fn working_state_matches_reference_15() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn home_80x24_matches_reference() {
     let mut h = Harness::new(80, 24);
     h.app.cwd =
@@ -182,6 +194,10 @@ fn home_80x24_matches_reference() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn narrow_column_wraps_the_hint_row_like_the_150x42_reference() {
     let mut h = Harness::new(150, 42);
     opencode_like(&mut h);

@@ -666,16 +666,28 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(
+        not(reference_captures),
+        ignore = "needs the reference/ captures, not in this repository; see build.rs"
+    )]
     fn matches_the_opencode_capture_at_150x42() {
         check_against("session-150x42-sidebar", 150, 42);
     }
 
     #[test]
+    #[cfg_attr(
+        not(reference_captures),
+        ignore = "needs the reference/ captures, not in this repository; see build.rs"
+    )]
     fn matches_the_opencode_overlay_capture_at_120x50() {
         check_against("session-120-sidebar-overlay", 120, 50);
     }
 
     #[test]
+    #[cfg_attr(
+        not(reference_captures),
+        ignore = "needs the reference/ captures, not in this repository; see build.rs"
+    )]
     fn matches_the_opencode_capture_at_170x50() {
         check_against("session-170x50-top", 170, 50);
     }

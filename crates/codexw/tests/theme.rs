@@ -76,6 +76,10 @@ fn assert_picker_matches(h: &Harness, name: &str) {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn the_picker_matches_the_capture_then_follows_down_arrows() {
     let _g = lock();
     let mut h = open_picker(120, 36);

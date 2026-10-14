@@ -194,16 +194,28 @@ fn compare(dir: &str, width: u16) {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn md_at_120_matches_the_capture() {
     compare("120x36", 120);
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn md_at_150_matches_the_capture() {
     compare("150x42", 150);
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn md_at_80_matches_the_capture() {
     compare("80x24", 80);
 }

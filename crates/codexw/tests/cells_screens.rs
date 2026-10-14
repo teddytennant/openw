@@ -191,6 +191,10 @@ fn plan_turn_matches_the_capture() {
 /// Codex lists the explored calls in the order they finished, which varies between runs; the
 /// scripted calls here arrive as list, read, search.
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn explore_turn_matches_the_capture_up_to_row_order() {
     for (size, c, r) in SIZES {
         let h = run_turn_as(c, r, "explore-sh", "explore");
@@ -362,6 +366,10 @@ fn run_prefix(cols: u16, rows: u16, scenario: &str, typed: &str, take: usize) ->
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn reasoning_title_is_the_status_header() {
     let h = run_prefix(120, 36, "text", "text", 2);
     let want = reference("120x36", "turns-01-text-mid.txt");
@@ -373,6 +381,10 @@ fn reasoning_title_is_the_status_header() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn explored_cell_then_rule_then_working_while_the_answer_has_no_newline() {
     // thought, 3 calls (running + done each), then the first words of the answer
     let h = run_prefix(120, 36, "explore-sh", "explore", 1 + 1 + 6 + 1);
@@ -385,6 +397,10 @@ fn explored_cell_then_rule_then_working_while_the_answer_has_no_newline() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn finished_commands_stay_above_the_working_row() {
     let h = run_prefix(120, 36, "exec", "exec", 1 + 3 * 2);
     let want = reference("120x36", "turns-05-exec-mid.txt");
@@ -412,6 +428,10 @@ fn a_running_command_is_the_in_flight_cell() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn proposed_plan_is_one_tinted_cell_that_appears_whole() {
     let h = run_turn(120, 36, "proposed-plan");
     let want = reference("120x36", "xb-05-proposed-plan-done.txt");
@@ -430,6 +450,10 @@ fn proposed_plan_is_one_tinted_cell_that_appears_whole() {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn provider_errors_are_one_red_row_after_the_prompt() {
     for sc in ["500", "429", "failed", "quota", "400"] {
         let h = run_turn(120, 36, &format!("error-{sc}"));
@@ -494,6 +518,10 @@ fn transcript_rows(h: &Harness, width: u16) -> Vec<String> {
 }
 
 #[test]
+#[cfg_attr(
+    not(reference_captures),
+    ignore = "needs the reference/ captures, not in this repository; see build.rs"
+)]
 fn the_pager_shows_reasoning_and_the_exec_transcript_form() {
     let h = run_turn(120, 36, "tour");
     let got = transcript_rows(&h, 120);
