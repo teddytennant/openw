@@ -75,7 +75,10 @@ impl HistoryCell for SessionHeaderCell {
             format!(" {}", self.effort)
         };
         let mut lines = vec![
-            Line::from(format!("Wizard (v{})", self.version)),
+            Line::from(match self.version.is_empty() {
+                true => "Wizard".to_string(),
+                false => format!("Wizard (v{})", self.version),
+            }),
             Line::from(format!("model: {model}{effort}")),
             Line::from(format!("directory: {}", self.directory)),
         ];
@@ -94,12 +97,13 @@ impl HistoryCell for SessionHeaderCell {
         let label_w = if self.yolo { 12 } else { 10 };
         let label = |s: &str| -> Span<'static> { Span::from(format!("{s:<label_w$} ")).dim() };
 
-        let title = Line::from(vec![
-            Span::from(">_ ").dim(),
-            Span::from("Wizard").bold(),
-            Span::from(" ").dim(),
-            Span::from(format!("(v{})", self.version)).dim(),
-        ]);
+        // the version is wizard's, unknown until it answers
+        let mut title = vec![Span::from(">_ ").dim(), Span::from("Wizard").bold()];
+        if !self.version.is_empty() {
+            title.push(Span::from(" ").dim());
+            title.push(Span::from(format!("(v{})", self.version)).dim());
+        }
+        let title = Line::from(title);
         let mut model = vec![label("model:")];
         match &self.model {
             Some(m) => model.push(Span::from(m.clone())),

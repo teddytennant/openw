@@ -5,7 +5,8 @@
 //! redraws, the frame that inserts the session header and tip into the scrollback, three idle
 //! redraws, the typed draft, and the Enter that inserts the user message. The terminal-title writes are dropped from both sides. Documented differences:
 //! the model name and version are whatever the scripted config says (`gpt-5.5` and `0.147.0`
-//! here, as in the capture), and
+//! here, as in the capture; the loading header gets the same version, which wizard would only
+//! report once it answers), and
 //! the title spinner that Codex runs during MCP startup does not exist in codexw.
 
 mod common;
@@ -31,6 +32,9 @@ fn ready() -> Event {
 fn first_frames_match_the_codex_byte_stream() {
     // Placeholder 7 is `Run /review on my current changes`, the one the capture drew.
     let mut h = harness(120, 36, 6);
+    if let Some(header) = h.app.placeholder_header.as_mut() {
+        header.version = "0.147.0".into();
+    }
     let mut ours = Vec::new();
     for _ in 0..4 {
         h.app.draw().unwrap();
