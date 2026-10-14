@@ -359,6 +359,22 @@ fn compaction_shows_the_label_then_the_summary_box() {
 }
 
 #[test]
+fn nothing_to_compact_is_not_a_compaction() {
+    let mut h = Harness::new(100, 30);
+    h.type_str("/compact");
+    h.press(KeyCode::Enter);
+    h.event(Event::TurnStart);
+    h.event(Event::Notice {
+        level: NoticeLevel::Info,
+        text: "nothing to compact yet".into(),
+    });
+    h.event(Event::TurnEnd(StopReason::EndTurn));
+    let t = h.text();
+    assert!(!t.contains("[compaction]"), "{t}");
+    assert!(t.contains("nothing to compact yet"), "{t}");
+}
+
+#[test]
 fn page_up_shows_the_jump_indicator_and_ctrl_end_hides_it() {
     let mut h = Harness::new(100, 20);
     for i in 0..8 {

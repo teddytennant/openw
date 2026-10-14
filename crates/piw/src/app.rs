@@ -1084,7 +1084,8 @@ impl App {
         if level != NoticeLevel::Info {
             self.after_history = None;
         }
-        if self.compacting && level == NoticeLevel::Info {
+        if self.compacting && level == NoticeLevel::Info && !text.starts_with("nothing to compact")
+        {
             let tokens = first_number_before(text, "token");
             self.items.push(Item::Compaction {
                 tokens,
