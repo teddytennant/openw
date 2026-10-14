@@ -1427,7 +1427,7 @@ impl Composer {
         if plain(KeyCode::Enter).is_press(key) {
             match popup.selected() {
                 Some(sel) if !self.typed_backend_only() => {
-                    return self.command_popup_enter(sel.name)
+                    return self.command_popup_enter(sel.name);
                 }
                 _ => return self.handle_key_without_popup(key),
             }
