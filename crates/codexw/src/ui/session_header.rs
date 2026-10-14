@@ -294,7 +294,7 @@ mod tests {
         let t = text(&c.display_lines(120));
         assert_eq!(t[0], "╭───────────────────────────────────────╮");
         let title = "│ >_ Wizard (v3.8.12)";
-        assert!(t[1].starts_with(&title) && t[1].ends_with('│'), "{}", t[1]);
+        assert!(t[1].starts_with(title) && t[1].ends_with('│'), "{}", t[1]);
         assert_eq!(t[1].chars().count(), t[0].chars().count());
         assert_eq!(t[3], "│ model:     gpt-5.5   /model to change │");
         assert_eq!(t[4], "│ directory: ~/proj                     │");
