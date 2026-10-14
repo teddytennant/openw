@@ -341,7 +341,7 @@ mod tests {
     #[test]
     fn version_help_and_refusals() {
         assert!(
-            matches!(parse_args(args(&["--version"])), Ok(Parsed::Exit(s)) if s.starts_with("grokw "))
+            matches!(parse_args(args(&["--version"])), Ok(Parsed::Exit(s)) if s.starts_with("wizard-ui-grok "))
         );
         assert!(matches!(parse_args(args(&["--help"])), Ok(Parsed::Exit(_))));
         assert!(parse_args(args(&["--worktree"])).is_err());
