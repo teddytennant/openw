@@ -519,10 +519,23 @@ fn fz(q: &str, text: &str) -> Option<(u32, Vec<usize>)> {
     Some((sc, hits.into_iter().map(|h| h as usize).collect()))
 }
 
-/// Argument rows keep their order for an empty query; a typed one ranks by score, then name.
+/// Argument rows keep their order for an empty query; a typed one ranks an exact value first
+/// (`high` is not `Extra High`), then by score, then name.
 fn rank_args(q: &str, v: &mut [(u32, PopupItem)]) {
-    if !q.trim().is_empty() {
-        v.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.label.cmp(&b.1.label)));
+    let q = q.trim();
+    if !q.is_empty() {
+        let exact = |i: &PopupItem| {
+            i.insert
+                .rsplit(' ')
+                .next()
+                .is_some_and(|v| v.eq_ignore_ascii_case(q))
+        };
+        v.sort_by(|a, b| {
+            exact(&b.1)
+                .cmp(&exact(&a.1))
+                .then(b.0.cmp(&a.0))
+                .then_with(|| a.1.label.cmp(&b.1.label))
+        });
     }
 }
 
@@ -1151,4 +1164,25 @@ fn cmd_rename(app: &mut App, args: &str) {
 /// Screen the command ran from, for the palette later.
 pub fn from_home(app: &App) -> bool {
     app.screen == Screen::Home
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::AppOpts;
+    use tokio::sync::mpsc::unbounded_channel;
+
+    fn app() -> App {
+        let (tx, _) = unbounded_channel();
+        let (mtx, _) = unbounded_channel();
+        let mut app = App::new(AppOpts::default(), tx, mtx);
+        app.config.efforts = vec!["low".into(), "medium".into(), "high".into(), "xhigh".into()];
+        app
+    }
+
+    #[test]
+    fn an_exact_argument_is_the_first_row() {
+        let rows = arg_items(&app(), "effort", "high");
+        assert_eq!(rows[0].insert, "/effort high");
+    }
 }
