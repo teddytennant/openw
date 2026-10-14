@@ -199,6 +199,8 @@ pub struct Composer {
     burst_enabled: bool,
     cwd: PathBuf,
     file_index: Option<Arc<FileIndex>>,
+    /// Commands wizard advertised: typed, they go to wizard rather than being unrecognized.
+    pub backend_commands: Vec<String>,
 }
 
 impl std::fmt::Debug for Composer {
@@ -472,6 +474,7 @@ impl Composer {
             burst: PasteBurst::default(),
             burst_enabled: false,
             cwd: std::env::current_dir().unwrap_or_default(),
+            backend_commands: Vec::new(),
             file_index: None,
         }
     }
@@ -1283,7 +1286,7 @@ impl Composer {
         }
         if !self.bang && !starts_with_space && !queue {
             if let Some((name, _, _)) = parse_slash_name(&text) {
-                if !name.contains('/') && commands::lookup(name).is_none() {
+                if !name.contains('/') && !self.knows(name) {
                     return ComposerEvent::Info(format!(
                         "Unrecognized command '/{name}'. Type \"/\" for a list of supported commands."
                     ));
@@ -1318,6 +1321,21 @@ impl Composer {
         text.starts_with('!')
     }
 
+    /// A command name codexw has, or one wizard advertised.
+    fn knows(&self, name: &str) -> bool {
+        commands::lookup(name).is_some() || self.backend_commands.iter().any(|c| c == name)
+    }
+
+    /// The draft names, exactly, a wizard command codexw has no entry for (`/mode`), so Enter
+    /// runs it instead of the popup's prefix match (`/model`).
+    fn typed_backend_only(&self) -> bool {
+        let text = self.editor.text();
+        let first = text.lines().next().unwrap_or("");
+        parse_slash_name(first).is_some_and(|(name, _, _)| {
+            commands::lookup(name).is_none() && self.backend_commands.iter().any(|c| c == name)
+        })
+    }
+
     /// The first line as a command to run now: `/name` or `/name args` for a known command.
     fn slash_command_text(&self, text: &str) -> Option<String> {
         if text.starts_with(' ') {
@@ -1325,10 +1343,9 @@ impl Composer {
         }
         let first_line = text.lines().next().unwrap_or("");
         let (name, _, _) = parse_slash_name(first_line)?;
-        if name.contains('/') {
+        if name.contains('/') || !self.knows(name) {
             return None;
         }
-        commands::lookup(name)?;
         // Text after the name goes along as arguments; the app decides what a command does
         // with it (`/model <id>` picks a model, `/exit now` ignores it).
         let args = self.expanded_rest(text);
@@ -1408,10 +1425,12 @@ impl Composer {
             return ComposerEvent::None;
         }
         if plain(KeyCode::Enter).is_press(key) {
-            if let Some(sel) = popup.selected() {
-                return self.command_popup_enter(sel.name);
+            match popup.selected() {
+                Some(sel) if !self.typed_backend_only() => {
+                    return self.command_popup_enter(sel.name)
+                }
+                _ => return self.handle_key_without_popup(key),
             }
-            return self.handle_key_without_popup(key);
         }
         self.handle_input_basic(key)
     }
@@ -2307,6 +2326,27 @@ mod tests {
         c.handle_key(k(KeyCode::Char('x')), false);
         assert!(!c.overlay);
         assert_eq!(c.text(), "x");
+    }
+
+    #[test]
+    fn a_wizard_command_is_run_as_typed_and_an_unknown_one_is_refused() {
+        let mut c = comp();
+        c.backend_commands = vec!["mode".into(), "help".into()];
+        type_str(&mut c, "/mode");
+        assert_eq!(
+            c.handle_key(k(KeyCode::Enter), false),
+            ComposerEvent::Command("/mode".into())
+        );
+        type_str(&mut c, "/help");
+        assert_eq!(
+            c.handle_key(k(KeyCode::Enter), false),
+            ComposerEvent::Command("/help".into())
+        );
+        type_str(&mut c, "/frobnicate");
+        assert!(matches!(
+            c.handle_key(k(KeyCode::Enter), false),
+            ComposerEvent::Info(t) if t.starts_with("Unrecognized command '/frobnicate'")
+        ));
     }
 
     #[test]

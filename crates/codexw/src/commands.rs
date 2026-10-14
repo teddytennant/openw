@@ -361,6 +361,10 @@ impl<W: Write> App<W> {
             return Outcome::Done;
         };
         let Some(spec) = lookup(name) else {
+            if self.commands.iter().any(|c| c.name == name) {
+                self.wizard_command(text.trim().to_string());
+                return Outcome::Done;
+            }
             self.push_cell(Box::new(InfoCell {
                 text: format!(
                     "Unrecognized command '/{name}'. Type \"/\" for a list of supported commands."

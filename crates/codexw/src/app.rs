@@ -372,7 +372,10 @@ impl<W: Write> App<W> {
                 self.config = config.clone();
                 self.on_ready();
             }
-            Event::Commands(c) => self.commands = c.clone(),
+            Event::Commands(c) => {
+                self.pane.composer.backend_commands = c.iter().map(|c| c.name.clone()).collect();
+                self.commands = c.clone();
+            }
             Event::ConfigChanged(c) => {
                 self.config = c.clone();
                 self.sync_footer();
