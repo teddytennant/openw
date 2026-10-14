@@ -513,7 +513,7 @@ fn tool_rows(c: &agent_core::ToolCall, cwd: &str) -> Vec<String> {
         cwd: cwd.into(),
         home: "/home/me".into(),
         clock: std::time::Duration::ZERO,
-        version: "1.0.3",
+        version: "1.0.3".into(),
     };
     render(c, &ToolCx::new(&cx, ToolTime::default()))
         .iter()

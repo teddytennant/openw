@@ -38,4 +38,4 @@
 
 
 
-  /home/me/proj:main                                                                                                                           0.1.0
+  /home/me/proj:main                                                                                                                             0.0

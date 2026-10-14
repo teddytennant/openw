@@ -376,6 +376,7 @@ impl<W: Write> App<W> {
             mode: Some(cfg.mode.clone()).filter(|m| !m.is_empty()),
             session: Some(self.session_id.clone()).filter(|s| !s.is_empty()),
             usage: self.usage.clone(),
+            version: self.config.version().to_string(),
         };
         self.push_cell(Box::new(status_card::StatusCell { data }));
     }

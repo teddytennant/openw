@@ -357,7 +357,7 @@ fn footer_lines(app: &App, w: usize, copy: &Copy) -> Vec<Line<'static>> {
         span("wiz", t.text_muted, true),
         span("ard", t.text, true),
         Span::raw(" "),
-        span(app.version, t.text_muted, false),
+        span(app.config.version(), t.text_muted, false),
     ]));
     out
 }

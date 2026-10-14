@@ -82,7 +82,7 @@ fn instructions(cx: &Cx, km: &Keymap) -> Vec<Vec<Span<'static>>> {
 pub fn render(cx: &Cx, km: &Keymap) -> Lines {
     let dim = cx.th().fg(Tok::Dim);
     let mut logical: Vec<Vec<Span<'static>>> = Vec::new();
-    logical.push(logo1(cx.version, cx));
+    logical.push(logo1(&cx.version, cx));
     if cx.expanded {
         let mut ins = instructions(cx, km).into_iter();
         let mut first = logo2();
@@ -135,7 +135,7 @@ mod tests {
             cwd: "/home/me".into(),
             home: "/home/me".into(),
             clock: Default::default(),
-            version: "1.0.3",
+            version: "1.0.3".into(),
         }
     }
 

@@ -12,7 +12,7 @@
 
                                  Debug                                                                            esc
 
-                                 Version    0.1.0 (dev)
+                                 Version    0.0 (dev)
                                  Date       2026-09-21T15:13:20.000Z
                                  OS         <machine>
                                  Terminal   <machine>
@@ -38,4 +38,4 @@
   ┃
   ┃  Build · grok-4.6 xai-oauth                                                                               /home/me/proj:main
   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-   /home/me/proj                                                               11.7K (6%)  ctrl+p commands    • openw 0.1.0
+   /home/me/proj                                                               11.7K (6%)  ctrl+p commands    • wizard 0.0

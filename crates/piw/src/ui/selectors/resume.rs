@@ -415,7 +415,7 @@ mod tests {
             cwd: String::new(),
             home: "/home/me".into(),
             clock: Duration::ZERO,
-            version: "1.0.3",
+            version: "1.0.3".into(),
         }
     }
 

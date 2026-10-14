@@ -10,7 +10,7 @@ use ratatui::layout::Rect;
 use tuikit::width::{display_width, wrap};
 
 use super::{anim, bold, put, put_right, st, Layout};
-use crate::app::{App, GROK_VERSION};
+use crate::app::App;
 
 pub const LOGO07: [&str; 7] = [
     "⠀⠀⠀⠀⠀⠀⣀⣀⡀⠀⠀⠀⢀⠄",
@@ -368,7 +368,7 @@ pub fn draw(buf: &mut Buffer, app: &mut App, lay: &Layout) {
     // version line and subtitle (card only)
     if let Some((x, y)) = hl.version_hdr {
         let nx = put(buf, x, y, "Wizard  ", bold(th.text_primary));
-        put(buf, nx, y, GROK_VERSION, st(th.gray));
+        put(buf, nx, y, app.config.version(), st(th.gray));
     }
     if let Some(y) = hl.subtitle_y {
         put(buf, hl.menu_x, y, SUBTITLE, st(th.gray));
@@ -432,7 +432,7 @@ pub fn draw(buf: &mut Buffer, app: &mut App, lay: &Layout) {
     } else if hl.card.is_some() {
         put_right(buf, end, vy, "[alpha]", st(th.gray));
     } else {
-        let tail = format!("{GROK_VERSION} [alpha]");
+        let tail = format!("{} [alpha]", app.config.version());
         let x = put_right(buf, end, vy, &tail, st(th.gray));
         put_right(buf, x, vy, "Wizard  ", bold(th.text_primary));
     }

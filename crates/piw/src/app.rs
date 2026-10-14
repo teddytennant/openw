@@ -525,7 +525,7 @@ impl App {
             cwd: self.cwd.clone(),
             home: self.home.clone(),
             clock: self.clock(),
-            version: VERSION,
+            version: self.config.version().to_string(),
         }
     }
 

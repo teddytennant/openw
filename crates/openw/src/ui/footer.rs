@@ -67,7 +67,7 @@ pub(crate) fn wrap_chars(s: &str, w: usize) -> Vec<String> {
 }
 
 fn home_path_rows(app: &App, w: u16) -> Vec<String> {
-    let version = app.version;
+    let version = app.config.version();
     let avail = (w as usize)
         .saturating_sub(4 + display_width(version) + 4)
         .max(8);
@@ -89,12 +89,12 @@ pub fn home_footer(buf: &mut Buffer, screen: Rect, app: &App) {
     for (i, r) in rows.iter().enumerate() {
         put_str(buf, screen.x + 2, top + 1 + i as u16, r, style, screen);
     }
-    let vw = display_width(app.version) as u16;
+    let vw = display_width(app.config.version()) as u16;
     put_str(
         buf,
         screen.right().saturating_sub(2 + vw),
         top + 1,
-        app.version,
+        app.config.version(),
         style,
         screen,
     );

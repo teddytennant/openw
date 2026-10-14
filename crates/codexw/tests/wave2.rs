@@ -337,6 +337,7 @@ fn turn(placeholder: usize, rows: u16, scenario: &str) -> Harness {
         config: Config {
             model: "gpt-5.5".into(),
             effort: "default".into(),
+            backend: "wizard 3.8.12".into(),
             ..Default::default()
         },
     });
@@ -414,7 +415,7 @@ fn raw_off_brings_the_rich_cells_back() {
     );
     assert!(t.contains("• Raw output mode off: rich transcript rendering restored."));
     assert!(
-        t.contains(concat!("│ >_ Wizard (v", env!("CARGO_PKG_VERSION"), ")")),
+        t.contains("│ >_ Wizard (v3.8.12)"),
         "the header box is back"
     );
     assert!(t.contains("› go fake:markdown"));

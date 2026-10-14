@@ -13,7 +13,7 @@
                                 Run this in a terminal: wizard --login xai
                                 Opens your browser for the xAI sign-in and stores the
                                 token under ~/.wizard.
-                                Then restart openw so it picks up the new credentials.
+                                Then restart wizard so it picks up the new credentials.
 
                        ┃
                        ┃  Ask                                                      ok
@@ -32,4 +32,4 @@
 
 
 
-  /home/me/proj:main                                                                                             0.1.0
+  /home/me/proj:main                                                                                               0.0

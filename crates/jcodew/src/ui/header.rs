@@ -6,7 +6,7 @@ use ratatui::text::Span;
 use unicode_width::UnicodeWidthStr;
 
 use super::line::{Hang, RLine};
-use crate::app::{App, VERSION};
+use crate::app::App;
 use crate::theme;
 
 fn title_word(w: &str) -> String {
@@ -96,7 +96,7 @@ pub fn lines(app: &App, width: usize) -> Vec<RLine> {
         ));
         out.push(RLine::new(spans).hang(Hang::None));
     }
-    out.push(RLine::styled(format!("v{VERSION}"), dim));
+    out.push(RLine::styled(format!("v{}", app.config.version()), dim));
     let mut seen: Vec<&str> = Vec::new();
     for m in &app.config.models {
         if !m.provider.is_empty() && !seen.contains(&m.provider.as_str()) {

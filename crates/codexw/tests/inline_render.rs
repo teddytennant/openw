@@ -16,6 +16,7 @@ fn started(cols: u16, rows: u16) -> Harness {
         config: Config {
             model: "gpt-5.5".into(),
             effort: "default".into(),
+            backend: "wizard 3.8.12".into(),
             ..Default::default()
         },
     });
@@ -46,7 +47,7 @@ fn history_scrolls_into_the_terminal_scrollback_in_order() {
         assert!(at(n - 1) < at(n), "order broken at {n}");
     }
     assert_eq!(
-        full.matches(concat!("Wizard (v", env!("CARGO_PKG_VERSION"), ")"))
+        full.matches("Wizard (v3.8.12)")
             .count(),
         1
     );
@@ -82,7 +83,7 @@ fn resize_replays_history_at_the_new_width() {
     let full = h.screen.full_text();
     assert!(full.lines().all(|l| l.chars().count() <= 80), "{full}");
     assert_eq!(
-        full.matches(concat!("Wizard (v", env!("CARGO_PKG_VERSION"), ")"))
+        full.matches("Wizard (v3.8.12)")
             .count(),
         1
     );

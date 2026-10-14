@@ -420,7 +420,6 @@ pub struct App {
     pub size: (u16, u16),
     pub cwd: String,
     pub branch: Option<String>,
-    pub version: &'static str,
     pub transcript: Transcript,
     pub config: Config,
     pub backend_cmds: Vec<SlashCommand>,
@@ -542,7 +541,6 @@ impl App {
             size: (120, 36),
             cwd,
             branch: None,
-            version: VERSION,
             transcript: Transcript::new(),
             config: Config::default(),
             backend_cmds: Vec::new(),
@@ -769,7 +767,7 @@ impl App {
             });
         }
         dialogs::Ctx {
-            version: self.version.to_string(),
+            version: self.config.version().to_string(),
             cwd: self.cwd.clone(),
             config: self.config.clone(),
             prefs: self.prefs.clone(),

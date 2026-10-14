@@ -1,5 +1,5 @@
 
- wizard  v0.1.0
+ wizard  v0.0
  escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o
  more
  Press ctrl+o to show full startup help.

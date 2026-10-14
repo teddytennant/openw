@@ -146,4 +146,4 @@
   ┃
   ┃  Build · grok-4.6 xai-oauth                                                                                                   /home/me/proj:main
   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-   /home/me/proj                                                                                   tab agents  ctrl+p commands    • openw 0.1.0
+   /home/me/proj                                                                                   tab agents  ctrl+p commands    • wizard 0.0

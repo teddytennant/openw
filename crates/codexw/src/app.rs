@@ -484,11 +484,12 @@ impl<W: Write> App<W> {
     /// Everything after the backend is up and any startup pick is settled: the header, the
     /// session switch summary, a replayed transcript and the first prompt.
     pub fn finish_ready(&mut self) {
-        let header = SessionHeaderCell::new(
+        let mut header = SessionHeaderCell::new(
             Some(self.model_name()),
             self.effort_label_for_header(),
             &self.cwd_display(),
         );
+        header.version = self.config.version().to_string();
         let info = SessionInfoCell {
             header,
             tip: Some(TooltipCell::new(DEFAULT_TIP)),
@@ -1041,11 +1042,12 @@ impl<W: Write> App<W> {
         let _ = self.term.clear_scrollback_and_screen();
         self.has_emitted_history = false;
         self.replay_from = self.cells.len();
-        let header = SessionHeaderCell::new(
+        let mut header = SessionHeaderCell::new(
             Some(self.model_name()),
             self.effort_label_for_header(),
             &self.cwd_display(),
         );
+        header.version = self.config.version().to_string();
         self.push_cell(Box::new(header));
     }
 
@@ -1223,7 +1225,7 @@ impl<W: Write> App<W> {
             used_tokens: u.input_tokens.saturating_sub(u.cached_tokens) + u.output_tokens,
             input_tokens: u.input_tokens.saturating_sub(u.cached_tokens),
             output_tokens: u.output_tokens,
-            version: VERSION.into(),
+            version: self.config.version().to_string(),
             session_id: self.session_id.clone(),
             thread_title: self
                 .home

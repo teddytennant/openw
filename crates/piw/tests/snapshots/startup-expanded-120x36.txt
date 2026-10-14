@@ -1,5 +1,5 @@
 
- wizard  v0.1.0
+ wizard  v0.0
  escape to interrupt
  ctrl+c to clear
  ctrl+c twice to exit

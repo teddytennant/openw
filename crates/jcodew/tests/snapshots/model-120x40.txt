@@ -14,7 +14,7 @@
 
  wizard
  /model to switch · fake · Grok 4.7
- v0.1.0
+ v0.0
 ▸ grok-4.7 current  fake
   grok-4.6          fake
   grok-4.7-fast     fake

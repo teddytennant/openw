@@ -46,7 +46,8 @@ pub struct Cx {
     pub home: String,
     /// Time since the app started; spinners and `Elapsed` read it, tests freeze it.
     pub clock: Duration,
-    pub version: &'static str,
+    /// wizard's version, empty until it has said.
+    pub version: String,
 }
 
 impl Cx {

@@ -10,7 +10,7 @@
 
                   Debug                                                                            esc
 
-                  Version    0.1.0 (dev)
+                  Version    0.0 (dev)
                   Date       2026-09-21T15:13:20.000Z
                   OS         <machine>
                   Terminal   <machine>

@@ -11,7 +11,6 @@ use ratatui::style::Stylize;
 use ratatui::text::{Line, Span};
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::app::VERSION;
 use crate::ui::HistoryCell;
 use crate::ui::session_header::{center_truncate_path, with_border};
 use crate::wrap::{line_width, width_of};
@@ -31,6 +30,8 @@ pub struct StatusData {
     pub mode: Option<String>,
     pub session: Option<String>,
     pub usage: Usage,
+    /// wizard's version, as it reported it.
+    pub version: String,
 }
 
 #[derive(Debug)]
@@ -243,7 +244,7 @@ impl StatusData {
                 Span::from(format!("{INDENT}>_ ")).dim(),
                 Span::from("Wizard").bold(),
                 Span::from(" ").dim(),
-                Span::from(format!("(v{VERSION})")).dim(),
+                Span::from(format!("(v{})", self.version)).dim(),
             ]),
             Line::default(),
         ];
@@ -354,6 +355,7 @@ mod tests {
             mode: Some("Default".into()),
             session: Some("01a10e01-6dff-7fd2-9469-c820aa5968b7".into()),
             usage: Usage::default(),
+            version: "3.8.12".into(),
         }
     }
 

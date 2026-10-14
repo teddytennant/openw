@@ -215,6 +215,14 @@ pub struct Config {
     pub backend: String,
 }
 
+impl Config {
+    /// The backend's own version, the last word of `backend` (`wizard 3.8.12` gives `3.8.12`).
+    /// Empty until the backend has said, never a look's crate version.
+    pub fn version(&self) -> &str {
+        self.backend.rsplit(' ').next().unwrap_or("")
+    }
+}
+
 /// The look a `/ui <name>` notice from `wizard acp` says it saved, if `text` is that notice
 /// (`saved [ui] skin = "grok". ...`). A look quits when this names a look other than itself:
 /// the `wizard` that started it reads `[ui] skin` on the way out and starts the new one.

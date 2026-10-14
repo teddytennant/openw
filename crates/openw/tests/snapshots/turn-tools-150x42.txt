@@ -38,4 +38,4 @@
   ┃
   ┃  Build · grok-4.6 xai-oauth                                                                               /home/me/proj:main
   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-   /home/me/proj                                                       11.8K (6%) · $0.04  ctrl+p commands    • openw 0.1.0
+   /home/me/proj                                                       11.8K (6%) · $0.04  ctrl+p commands    • wizard 0.0

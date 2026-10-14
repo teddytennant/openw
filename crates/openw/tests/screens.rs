@@ -166,7 +166,7 @@ fn home_80x24_matches_reference() {
         "/tmp/claude-1000/-home-nixos/46dc526d-4fc6-4f47-b09e-820c7c4f2577/scratchpad/spec/proj"
             .into();
     h.app.config.models.clear();
-    h.app.version = "1.18.34";
+    h.app.config.backend = "wizard 1.18.34".into();
     let got: Vec<String> = h.text().lines().map(|l| l.trim_end().to_string()).collect();
     let want = ref_rows("extra/home-80x24.txt");
     // logo glyphs, placeholder example and the model line differ by design

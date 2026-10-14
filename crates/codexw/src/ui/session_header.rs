@@ -30,7 +30,7 @@ impl SessionHeaderCell {
             fast: false,
             directory: directory.to_string(),
             yolo: false,
-            version: crate::app::VERSION.to_string(),
+            version: String::new(),
         }
     }
 }
@@ -289,10 +289,11 @@ mod tests {
 
     #[test]
     fn header_matches_the_start_capture() {
-        let c = SessionHeaderCell::new(Some("gpt-5.5".into()), "", "~/proj");
+        let mut c = SessionHeaderCell::new(Some("gpt-5.5".into()), "", "~/proj");
+        c.version = "3.8.12".into();
         let t = text(&c.display_lines(120));
         assert_eq!(t[0], "╭───────────────────────────────────────╮");
-        let title = format!("│ >_ Wizard (v{})", crate::app::VERSION);
+        let title = "│ >_ Wizard (v3.8.12)";
         assert!(t[1].starts_with(&title) && t[1].ends_with('│'), "{}", t[1]);
         assert_eq!(t[1].chars().count(), t[0].chars().count());
         assert_eq!(t[3], "│ model:     gpt-5.5   /model to change │");

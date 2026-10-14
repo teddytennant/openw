@@ -147,7 +147,7 @@ fn history_stays_in_scrollback_after_exit() {
     t.wait("exit", |s| s.contains("[codexw exited 0]"));
     let full = t.full();
     assert!(
-        full.contains(concat!("Wizard (v", env!("CARGO_PKG_VERSION"), ")")),
+        full.contains("Wizard (v0.0)"),
         "{full}"
     );
     assert!(full.contains("› hello there"), "{full}");
@@ -193,7 +193,7 @@ fn resize_replays_history_at_the_new_width() {
         "a row is {width} wide after the resize:\n{full}"
     );
     assert_eq!(
-        full.matches(concat!("Wizard (v", env!("CARGO_PKG_VERSION"), ")"))
+        full.matches("Wizard (v0.0)")
             .count(),
         1,
         "{full}"

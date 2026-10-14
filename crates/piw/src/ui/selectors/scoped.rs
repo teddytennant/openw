@@ -360,7 +360,7 @@ mod tests {
             cwd: String::new(),
             home: String::new(),
             clock: Duration::ZERO,
-            version: "1.0.3",
+            version: "1.0.3".into(),
         }
     }
 

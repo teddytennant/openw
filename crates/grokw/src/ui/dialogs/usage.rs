@@ -13,7 +13,7 @@ use tuikit::paint::put_str;
 
 use super::widgets::{self, Hint};
 use super::{modal_frame, Modal};
-use crate::app::{App, GROK_VERSION};
+use crate::app::App;
 use crate::ui::{bold, put, st, Layout};
 
 pub const TABS: [&str; 3] = ["Context usage", "Usage limit", "Session info"];
@@ -253,7 +253,7 @@ fn info_fields(app: &App) -> (Fields, Fields) {
     if let Some(t) = app.titles.get(&app.tr.session_id) {
         long.push(("Title:", t.clone()));
     }
-    long.push(("Shell version:", format!("{GROK_VERSION} [alpha]")));
+    long.push(("Shell version:", format!("{} [alpha]", app.config.version())));
     long.push(("Session ID:", app.tr.session_id.clone()));
     long.push(("Working directory:", cwd_full(app)));
     let (turns, _) = turns_and_calls(app);
