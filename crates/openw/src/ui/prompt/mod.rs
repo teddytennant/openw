@@ -400,8 +400,10 @@ fn load_stash(path: &std::path::Path) -> Vec<String> {
         .collect()
 }
 
+/// Runs on the UI thread at every submit once history is full, so no `fsync`: on a busy disk
+/// that was seconds before the prompt went out.
 fn write_state(path: &std::path::Path, body: String) {
-    let _ = crate::private::write_atomic(path, body.as_bytes());
+    let _ = crate::private::write_replace(path, body.as_bytes());
 }
 
 fn append_state(path: &std::path::Path, line: &str) {
