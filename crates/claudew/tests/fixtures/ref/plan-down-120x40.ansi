@@ -9,12 +9,12 @@
   [38;5;239m╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌[39m
    [1mContext[0m
 
-   Add a [38;5;153m// entry point[39m comment to mark the program's entry in [38;5;153mmain.rs[39m.
+   Add the comment [38;5;153m// entry point[39m as the first line of [38;5;153mmain.rs[39m.
 
    [1mPlan[0m
 
-   1. Insert [38;5;153m// entry point[39m as the new first line of [38;5;153mmain.rs[39m, leaving the rest of the file unchanged.
-   2. Verify by viewing the top of the file (and building if desired).
+   1. Insert [38;5;153m// entry point[39m as line 1 of [38;5;153mmain.rs[39m, shifting existing content down.
+   2. Confirm the file's first line reads [38;5;153m// entry point[39m.
   [38;5;239m╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌[39m
 
 
@@ -37,4 +37,4 @@
      [38;5;246m3. Tell Claude what to change[39m
         [38;5;246mshift+tab to approve with this feedback[39m
 
-   [38;5;246mctrl+g to edit in nano · ~/.claude/plans/plan-adding-the-comment-polymorphic-pudding.md[39m
+   [38;5;246mctrl+g to edit in nano · ~/.claude/plans/plan-adding-the-comment-wild-penguin.md[39m
