@@ -7,10 +7,10 @@
 
    Here is Claude's plan:
   [38;5;239m╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌[39m
-   [1;3;4mPlan: add entry-point comment to main.rs[0m
-
-   [1mContext[0m
-                                                                              [38;5;246m↓[39m
+   1. Open main.rs and insert the line [38;5;153m// entry point[39m as its new first line,
+      leaving the rest of the file unchanged.
+   2. Verify by checking that line 1 of main.rs is [38;5;153m// entry point[39m and that
+      the file still builds.
   [38;5;73m────────────────────────────────────────────────────────────────────────────[39m
    [38;5;246mClaude has written up a plan and is ready to execute. Would you like to [39m
    [38;5;246mproceed?[39m
@@ -20,5 +20,5 @@
      [38;5;246m3. Tell Claude what to change[39m
         [38;5;246mshift+tab to approve with this feedback[39m
 
-   [38;5;246mctrl+g to edit in nano · [39m
-   [38;5;246m~/.claude/plans/plan-adding-the-comment-eager-moore.md[39m
+   [38;5;246mctrl+g to edit in Nvim · [39m
+   [38;5;246m~/.claude/plans/plan-adding-the-comment-shimmering-gem.md[39m
