@@ -18,7 +18,7 @@ use crate::theme::Theme;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// The Claude Code release this look reproduces.
-pub const CLAUDE_VERSION: &str = "2.1.296";
+pub const CLAUDE_VERSION: &str = "2.1.299";
 pub const LOOK: &str = "claude";
 
 pub const SPINNER_FRAMES: [&str; 6] = ["·", "✢", "*", "✶", "✻", "✽"];
@@ -64,6 +64,8 @@ pub const LOCAL_COMMANDS: &[(&str, &str)] = &[
 ];
 /// How long a footer hint stays up, and how quickly a second press must follow to count.
 const HINT_TTL: Duration = Duration::from_millis(800);
+/// How long the effort notice stays up after start and after a turn.
+const NOTICE_TTL: Duration = Duration::from_secs(8);
 const DOUBLE_PRESS: Duration = Duration::from_millis(800);
 const FRAME: Duration = Duration::from_millis(120);
 
@@ -133,11 +135,13 @@ pub enum Block {
         text: String,
         bash: bool,
     },
-    /// The result of a local or backend command, hanging under the user row before it.
+    /// The result of a local or backend command, hanging under the user row before it. `dim`
+    /// is the SGR dim attribute, `muted` the grey of secondary text.
     Output {
         text: String,
         accent: String,
         dim: bool,
+        muted: bool,
     },
     Assistant {
         text: String,
@@ -174,11 +178,32 @@ pub enum Menu {
 #[derive(Clone, Debug, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 pub enum Dialog {
-    Help { tab: usize, sel: usize, focus: bool },
-    Model { sel: usize },
+    Help {
+        tab: usize,
+        sel: usize,
+        focus: bool,
+    },
+    Model {
+        sel: usize,
+    },
     Status,
-    Resume { sel: usize, query: String },
-    Permission { req: PermissionRequest, sel: usize },
+    Resume {
+        sel: usize,
+        query: String,
+    },
+    Permission {
+        req: PermissionRequest,
+        sel: usize,
+    },
+    /// Esc Esc on an empty prompt: pick a prompt to go back to before.
+    Rewind {
+        sel: usize,
+    },
+    /// ctrl+r: earlier prompts, filtered by what is typed.
+    Search {
+        query: String,
+        sel: usize,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -194,6 +219,8 @@ pub enum Hint {
     CtrlC,
     CtrlD,
     Esc,
+    /// Esc on an empty prompt; a second opens the rewind picker.
+    Rewind,
 }
 
 pub struct App {
@@ -251,6 +278,23 @@ pub struct App {
     /// Rows of the last transcript draw: content height and viewport height.
     pub last_view: (usize, usize),
     pending_prompts: Vec<String>,
+    /// Link texts and their targets in the last transcript draw, wrapped in OSC 8 after it.
+    pub links: std::cell::RefCell<Vec<(String, String)>>,
+    /// Where those links landed in the last frame: column, row, text, url, colour.
+    pub link_spots: Vec<(u16, u16, String, String, ratatui::style::Color)>,
+    /// When the notice above the prompt goes away; `None` keeps it.
+    pub notice_until: Option<Duration>,
+    /// Names of the commands that come from `~/.wizard/commands`.
+    pub custom: Vec<String>,
+    /// Subagents from `~/.wizard/subagents`: name and description.
+    pub agents: Vec<(String, String)>,
+    /// When each entry of `prompts` was sent, Unix seconds.
+    pub prompt_times: Vec<i64>,
+    rewind_answer: Option<String>,
+    /// A note being typed for a permission answer (Tab on the prompt).
+    pub amend: Option<String>,
+    /// The prompt a `/rewind` is going back to, put back in the input when it lands.
+    rewinding: Option<String>,
     /// `/plan` toggles sent for shift+tab whose turn and answer stay out of the transcript.
     silent: usize,
 }
@@ -264,7 +308,7 @@ impl App {
         };
         let plan = opts.plan;
         let pending_prompts = opts.prompts.clone();
-        App {
+        let mut app = App {
             opts,
             tx,
             msg_tx,
@@ -321,8 +365,61 @@ impl App {
             cursor: None,
             last_view: (0, 0),
             pending_prompts,
+            links: Default::default(),
+            link_spots: Vec::new(),
+            notice_until: None,
+            custom: Vec::new(),
+            agents: Vec::new(),
+            prompt_times: Vec::new(),
+            amend: None,
+            rewind_answer: None,
+            rewinding: None,
             silent: 0,
+        };
+        app.load_home();
+        app
+    }
+
+    /// Custom commands and subagents from `~/.wizard`. The backend runs a custom command as
+    /// typed but does not list it, and keeps subagents to itself.
+    fn load_home(&mut self) {
+        let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+            return;
+        };
+        let wizard = home.join(".wizard");
+        for (name, text) in read_dir_sorted(&wizard.join("commands"), "md") {
+            let description = front_matter(&text, "description").unwrap_or_else(|| {
+                text.lines()
+                    .map(str::trim)
+                    .find(|l| !l.is_empty() && *l != "---")
+                    .unwrap_or("")
+                    .trim_start_matches('#')
+                    .trim()
+                    .to_string()
+            });
+            if !self.commands.iter().any(|c| c.name == name) {
+                self.commands.push(SlashCommand {
+                    name: name.clone(),
+                    description,
+                    input_hint: String::new(),
+                });
+            }
+            self.custom.push(name);
         }
+        for (stem, text) in read_dir_sorted(&wizard.join("subagents"), "toml") {
+            let name = toml_str(&text, "name").unwrap_or(stem);
+            let description = toml_str(&text, "description").unwrap_or_default();
+            self.agents.push((name, description));
+        }
+    }
+
+    /// Wizard's version, as the backend reports it (`wizard 3.8.10`).
+    pub fn wizard_version(&self) -> String {
+        self.cfg
+            .backend
+            .strip_prefix("wizard ")
+            .map(str::to_string)
+            .unwrap_or_else(|| VERSION.to_string())
     }
 
     pub fn send(&self, req: Request) {
@@ -372,6 +469,7 @@ impl App {
             text: text.into(),
             accent: accent.into(),
             dim: false,
+            muted: false,
         });
         self.scroll = 0;
     }
@@ -419,6 +517,7 @@ impl App {
                 if !self.ready {
                     self.ready = true;
                     self.notice = self.effort_notice();
+                    self.notice_until = Some(self.clock.elapsed() + NOTICE_TTL);
                     if let Some(m) = self.opts.model.clone() {
                         self.send(Request::SetModel(m));
                     }
@@ -434,6 +533,15 @@ impl App {
                 }
             }
             Event::Commands(mut c) => {
+                for custom in self
+                    .commands
+                    .iter()
+                    .filter(|x| self.custom.contains(&x.name))
+                {
+                    if !c.iter().any(|x| x.name == custom.name) {
+                        c.push(custom.clone());
+                    }
+                }
                 for (name, description) in LOCAL_COMMANDS {
                     if !c.iter().any(|x| x.name == *name) {
                         c.push(SlashCommand {
@@ -522,6 +630,9 @@ impl App {
             {
                 self.quit = true;
             }
+            Event::Notice { text, .. } if self.rewinding.is_some() => {
+                self.rewind_answer = Some(text);
+            }
             Event::Notice { level, text } => {
                 let low = text.to_lowercase();
                 if low.contains("plan mode") {
@@ -540,9 +651,17 @@ impl App {
                         text,
                         accent: String::new(),
                         dim,
+                        muted: false,
                     });
                 } else {
+                    let setup = text.starts_with("could not start a session");
                     self.blocks.push(Block::Notice { level, text });
+                    if setup {
+                        self.blocks.push(Block::Notice {
+                            level: NoticeLevel::Info,
+                            text: "Run `wizard setup` to choose a provider and model, then start this look again.".into(),
+                        });
+                    }
                 }
             }
             Event::Fatal(e) => {
@@ -561,11 +680,7 @@ impl App {
     }
 
     fn effort_notice(&self) -> Option<String> {
-        let e = &self.cfg.effort;
-        if e.is_empty() {
-            return None;
-        }
-        Some(format!("{} {e} · /effort", effort_glyph(e)))
+        effort_notice_text(&self.cfg.effort)
     }
 
     fn start_busy(&mut self) {
@@ -576,11 +691,17 @@ impl App {
             chars: 0,
             thinking: false,
         });
-        self.notice = None;
+        self.notice = self.effort_notice();
+        self.notice_until = None;
     }
 
     fn end_turn(&mut self, reason: StopReason) {
+        if let Some(text) = self.rewinding.take() {
+            self.finish_rewind(text);
+            return;
+        }
         let Some(busy) = self.busy.take() else { return };
+        self.notice_until = Some(self.clock.elapsed() + NOTICE_TTL);
         let secs = (self.clock.elapsed().saturating_sub(busy.since)).as_secs();
         let command_turn = self
             .blocks
@@ -592,11 +713,28 @@ impl App {
             })
             .unwrap_or(false);
         match reason {
-            StopReason::Cancelled => self.blocks.push(Block::Output {
-                text: "Interrupted · What should Wizard do instead?".into(),
-                accent: String::new(),
-                dim: true,
-            }),
+            StopReason::Cancelled => {
+                // calls still out when the turn stopped fold away like finished ones
+                for b in &mut self.blocks {
+                    if let Block::Tool(t) = b {
+                        if matches!(t.status, ToolStatus::Pending | ToolStatus::Running) {
+                            t.status = ToolStatus::Failed;
+                            t.output = Some(agent_core::INTERRUPTED_OUTPUT.into());
+                        }
+                    }
+                }
+                self.blocks.push(Block::Output {
+                    text: "Interrupted · What should Wizard do instead?".into(),
+                    accent: String::new(),
+                    dim: false,
+                    muted: true,
+                });
+                self.blocks.push(Block::TurnEnd {
+                    verb: busy.verb % DONE_VERBS.len(),
+                    secs,
+                    time: self.now_hm(),
+                });
+            }
             _ if command_turn => {}
             _ => self.blocks.push(Block::TurnEnd {
                 verb: busy.verb % DONE_VERBS.len(),
@@ -622,6 +760,7 @@ impl App {
         self.notice = None;
         if self.prompts.last() != Some(&text) {
             self.prompts.push(text.clone());
+            self.prompt_times.push(self.now_unix);
         }
         self.history_at = None;
         if self.bash_mode {
@@ -765,7 +904,7 @@ impl App {
             }
         }
         if let Some((_, q)) = self.mention_at_cursor() {
-            let items = mention_matches(&self.files, &q);
+            let items = mention_matches(&self.files, &self.agents, &q);
             let sel = match &self.menu {
                 Menu::Mention { sel, items: old } if *old == items => *sel,
                 _ => None,
@@ -822,6 +961,10 @@ impl App {
                 };
                 let text = self.editor.text().to_string();
                 let cursor = self.editor.cursor().min(text.len());
+                let path = match path.strip_prefix(AGENT) {
+                    Some(a) => format!("agent-{}", a.split('\t').next().unwrap_or("")),
+                    None => path,
+                };
                 let dir = path.ends_with('/');
                 let insert = if dir {
                     format!("@{path}")
@@ -881,6 +1024,13 @@ impl App {
                 self.scroll = 0;
             }
             KeyCode::Char('t') if ctrl => self.show_todos = !self.show_todos,
+            KeyCode::Char('r') if ctrl => {
+                self.dialog = Some(Dialog::Search {
+                    query: String::new(),
+                    sel: 0,
+                })
+            }
+            KeyCode::End if ctrl => self.scroll = 0,
             KeyCode::Char('l') if ctrl => self.repaint = true,
             KeyCode::Char('z') if ctrl && !shift => self.suspend = true,
             KeyCode::Char('g') if ctrl => self.edit_request = true,
@@ -984,6 +1134,12 @@ impl App {
             } else {
                 self.hint = Some((Hint::Esc, self.clock.elapsed()));
             }
+        } else if prev == Some(Hint::Rewind) {
+            if !self.rewind_targets().is_empty() {
+                self.dialog = Some(Dialog::Rewind { sel: usize::MAX });
+            }
+        } else {
+            self.hint = Some((Hint::Rewind, self.clock.elapsed()));
         }
     }
 
@@ -1133,13 +1289,17 @@ impl App {
                 });
                 self.output("Resume cancelled", "");
             }
+            // Esc on a permission prompt turns the call down and stops the turn
             Some(Dialog::Permission { req, .. }) => {
+                self.amend = None;
                 self.send(Request::Decide {
                     id: req.id,
                     allow: false,
                     scope: DecideScope::Once,
                     note: String::new(),
                 });
+                self.queued.clear();
+                self.send(Request::Cancel);
             }
             _ => {}
         }
@@ -1163,20 +1323,41 @@ impl App {
         let Some(dialog) = self.dialog.clone() else {
             return;
         };
+        if let (Some(mut note), Dialog::Permission { req, sel }) = (self.amend.clone(), &dialog) {
+            match key.code {
+                KeyCode::Esc => self.amend = None,
+                KeyCode::Enter => {
+                    let choice = permission_options(req)[*sel].1;
+                    self.decide(req.clone(), choice);
+                }
+                KeyCode::Backspace => {
+                    note.pop();
+                    self.amend = Some(note);
+                }
+                KeyCode::Char(c) => {
+                    note.push(c);
+                    self.amend = Some(note);
+                }
+                _ => {}
+            }
+            return;
+        }
         if key.code == KeyCode::Esc {
             return self.close_dialog();
         }
         match dialog {
             Dialog::Help { tab, sel, focus } => {
-                let n = self.commands.len();
+                let n = crate::ui::dialogs::sorted_commands(self)
+                    .iter()
+                    .filter(|c| self.custom.contains(&c.name) == (tab == 2))
+                    .count();
                 let (tab, sel, focus) = match key.code {
-                    KeyCode::Tab | KeyCode::Right | KeyCode::BackTab | KeyCode::Left => {
-                        ((tab + 1) % 2, 0, false)
-                    }
-                    KeyCode::Down if tab == 1 && n > 0 && !focus => (tab, sel, true),
-                    KeyCode::Down if tab == 1 && n > 0 => (tab, (sel + 1) % n, true),
-                    KeyCode::Up if tab == 1 && focus && sel == 0 => (tab, 0, false),
-                    KeyCode::Up if tab == 1 && focus => (tab, sel - 1, true),
+                    KeyCode::Tab | KeyCode::Right => ((tab + 1) % 3, 0, false),
+                    KeyCode::BackTab | KeyCode::Left => ((tab + 2) % 3, 0, false),
+                    KeyCode::Down if tab > 0 && n > 0 && !focus => (tab, sel, true),
+                    KeyCode::Down if tab > 0 && n > 0 => (tab, (sel + 1) % n, true),
+                    KeyCode::Up if tab > 0 && focus && sel == 0 => (tab, 0, false),
+                    KeyCode::Up if tab > 0 && focus => (tab, sel - 1, true),
                     _ => (tab, sel, focus),
                 };
                 self.dialog = Some(Dialog::Help { tab, sel, focus });
@@ -1259,14 +1440,156 @@ impl App {
                         self.decide(req, options[c as usize - '1' as usize].1)
                     }
                     KeyCode::Enter => self.decide(req, options[sel].1),
+                    KeyCode::Tab => self.amend = Some(String::new()),
+                    _ => {}
+                }
+            }
+            Dialog::Rewind { sel } => {
+                let n = self.rewind_targets().len() + 1;
+                let at = sel.min(n - 1);
+                match key.code {
+                    KeyCode::Up => {
+                        self.dialog = Some(Dialog::Rewind {
+                            sel: at.saturating_sub(1),
+                        })
+                    }
+                    KeyCode::Down => {
+                        self.dialog = Some(Dialog::Rewind {
+                            sel: (at + 1).min(n - 1),
+                        })
+                    }
+                    KeyCode::Enter => {
+                        self.dialog = None;
+                        if at + 1 < n {
+                            self.start_rewind(at);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Dialog::Search { mut query, sel } => {
+                let n = self.search_hits(&query).len();
+                match key.code {
+                    KeyCode::Up => {
+                        self.dialog = Some(Dialog::Search {
+                            query,
+                            sel: (sel + 1).min(n.saturating_sub(1)),
+                        })
+                    }
+                    KeyCode::Down => {
+                        self.dialog = Some(Dialog::Search {
+                            query,
+                            sel: sel.saturating_sub(1),
+                        })
+                    }
+                    KeyCode::Enter => {
+                        let hit = self
+                            .search_hits(&query)
+                            .get(sel)
+                            .map(|&i| self.prompts[i].clone());
+                        self.dialog = None;
+                        if let Some(text) = hit {
+                            self.editor.set_text(&text);
+                            self.refresh_menu();
+                        }
+                    }
+                    KeyCode::Backspace => {
+                        query.pop();
+                        self.dialog = Some(Dialog::Search { query, sel: 0 });
+                    }
+                    KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        query.push(c);
+                        self.dialog = Some(Dialog::Search { query, sel: 0 });
+                    }
                     _ => {}
                 }
             }
         }
     }
 
+    /// Earlier prompts matching `query`, newest first, as indexes into `prompts`.
+    pub fn search_hits(&self, query: &str) -> Vec<usize> {
+        let q = query.to_lowercase();
+        (0..self.prompts.len())
+            .rev()
+            .filter(|&i| self.prompts[i].to_lowercase().contains(&q))
+            .collect()
+    }
+
+    /// The prompts the rewind picker offers, oldest first: what was typed, not commands.
+    pub fn rewind_targets(&self) -> Vec<String> {
+        self.blocks
+            .iter()
+            .filter_map(|b| match b {
+                Block::User { text, bash: false } if !text.starts_with('/') => Some(text.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Ask wizard to go back to before the `nth` prompt the picker lists. Wizard numbers its
+    /// turns in the session file; the prompt is found there by its first line.
+    fn start_rewind(&mut self, nth: usize) {
+        let targets = self.rewind_targets();
+        let Some(text) = targets.get(nth).cloned() else {
+            return;
+        };
+        let markers = std::env::var_os("HOME")
+            .map(|h| {
+                rewind_markers(
+                    &PathBuf::from(h)
+                        .join(".wizard/sessions")
+                        .join(format!("{}.jsonl", self.session_id)),
+                )
+            })
+            .unwrap_or_default();
+        let first = |s: &str| s.lines().next().unwrap_or("").trim().to_string();
+        let earlier = targets[..nth]
+            .iter()
+            .filter(|t| first(t) == first(&text))
+            .count();
+        let turn = markers
+            .iter()
+            .filter(|(_, p)| first(p) == first(&text))
+            .nth(earlier)
+            .map(|(t, _)| *t);
+        match turn {
+            Some(turn) => {
+                self.rewinding = Some(text);
+                self.rewind_answer = None;
+                self.start_busy();
+                self.send(Request::Prompt(format!("/rewind {turn}")));
+            }
+            None => self.blocks.push(Block::Notice {
+                level: NoticeLevel::Error,
+                text: "Cannot rewind: wizard has no checkpoint for that prompt".into(),
+            }),
+        }
+    }
+
+    fn finish_rewind(&mut self, text: String) {
+        self.busy = None;
+        let answer = self.rewind_answer.take().unwrap_or_default();
+        if answer.starts_with("rewound to before turn") {
+            self.blocks.clear();
+            self.send(Request::LoadSession(self.session_id.clone()));
+            self.editor.set_text(&text);
+        } else {
+            let why = if answer.is_empty() {
+                "wizard did not answer".to_string()
+            } else {
+                answer
+            };
+            self.blocks.push(Block::Notice {
+                level: NoticeLevel::Error,
+                text: format!("Rewind failed: {why}"),
+            });
+        }
+    }
+
     fn decide(&mut self, req: PermissionRequest, choice: Choice) {
         self.dialog = None;
+        let note = self.amend.take().unwrap_or_default();
         self.send(Request::Decide {
             id: req.id,
             allow: choice != Choice::No,
@@ -1275,7 +1598,7 @@ impl App {
             } else {
                 DecideScope::Once
             },
-            note: String::new(),
+            note,
         });
     }
 
@@ -1343,6 +1666,11 @@ impl App {
     /// Expire the footer hint and advance the spinner. Returns nothing; sets `dirty`.
     pub fn on_tick(&mut self) {
         let now = self.clock.elapsed();
+        if self.notice_until.is_some_and(|until| now >= until) {
+            self.notice = None;
+            self.notice_until = None;
+            self.dirty = true;
+        }
         if let Some((_, at)) = self.hint {
             if now.saturating_sub(at) >= HINT_TTL {
                 self.hint = None;
@@ -1358,10 +1686,13 @@ impl App {
         if self.busy.is_some() && self.dialog.is_none() {
             return Some(now + FRAME);
         }
-        self.hint.map(|(_, at)| {
-            let left = (at + HINT_TTL).saturating_sub(self.clock.elapsed());
-            now + left.max(Duration::from_millis(10))
-        })
+        let elapsed = self.clock.elapsed();
+        let hint = self.hint.map(|(_, at)| at + HINT_TTL);
+        [hint, self.notice_until]
+            .into_iter()
+            .flatten()
+            .min()
+            .map(|at| now + at.saturating_sub(elapsed).max(Duration::from_millis(10)))
     }
 
     /// What is printed to the normal screen after the UI is gone.
@@ -1389,12 +1720,75 @@ pub fn permission_options(req: &PermissionRequest) -> Vec<(String, Choice)> {
     if !req.rule.is_empty() {
         let what = match req.kind {
             ToolKind::Edit => "Yes, allow all edits during this session".to_string(),
-            _ => format!("Yes, and don't ask again for {}", req.rule),
+            _ => format!("Yes, and don\u{2019}t ask again for: {}", req.rule),
         };
         v.push((what, Choice::Always));
     }
     v.push(("No".to_string(), Choice::No));
     v
+}
+
+/// `(turn, prompt)` pairs from a wizard session file, for `/rewind <turn>`.
+pub fn rewind_markers(path: &Path) -> Vec<(u64, String)> {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    text.lines()
+        .filter_map(|l| {
+            let v: serde_json::Value = serde_json::from_str(l).ok()?;
+            Some((
+                v.get("turn")?.as_u64()?,
+                v.get("prompt")?.as_str()?.to_string(),
+            ))
+        })
+        .collect()
+}
+
+/// Files in `dir` ending in `.{ext}`, by name: (stem, contents).
+fn read_dir_sorted(dir: &Path, ext: &str) -> Vec<(String, String)> {
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut v: Vec<(String, String)> = rd
+        .flatten()
+        .filter_map(|e| {
+            let p = e.path();
+            if p.extension()? != ext {
+                return None;
+            }
+            let stem = p.file_stem()?.to_string_lossy().into_owned();
+            Some((stem, std::fs::read_to_string(&p).ok()?))
+        })
+        .collect();
+    v.sort();
+    v
+}
+
+/// `key: value` from a markdown file's front matter.
+fn front_matter(text: &str, key: &str) -> Option<String> {
+    let body = text.strip_prefix("---")?;
+    let end = body.find("\n---")?;
+    body[..end].lines().find_map(|l| {
+        let (k, v) = l.split_once(':')?;
+        (k.trim() == key).then(|| v.trim().trim_matches('"').to_string())
+    })
+}
+
+/// A top-level `key = "value"` from a TOML file.
+fn toml_str(text: &str, key: &str) -> Option<String> {
+    text.lines().find_map(|l| {
+        let (k, v) = l.split_once('=')?;
+        let v = v.trim();
+        (k.trim() == key && v.starts_with('"')).then(|| v.trim_matches('"').to_string())
+    })
+}
+
+/// `◐ medium · /effort`, the notice over the prompt; none for wizard's unnamed default.
+pub fn effort_notice_text(effort: &str) -> Option<String> {
+    if matches!(effort, "" | "default") {
+        return None;
+    }
+    Some(format!("{} {effort} · /effort", effort_glyph(effort)))
 }
 
 pub fn effort_glyph(effort: &str) -> &'static str {
@@ -1435,40 +1829,66 @@ pub fn slash_matches(commands: &[SlashCommand], query: &str) -> Vec<usize> {
 
 /// Paths for an `@` query: the top level when nothing is typed, otherwise every path that
 /// matches, best first.
-pub fn mention_matches(files: &[String], query: &str) -> Vec<String> {
+/// A mention entry that names a subagent: the marker, then name and description joined by a
+/// tab.
+pub const AGENT: char = '\u{1}';
+
+/// Paths and subagents for an `@` query: the top level and then the agents when nothing is
+/// typed, otherwise directories that start with it, up to two agents that match, then the
+/// other paths.
+pub fn mention_matches(files: &[String], agents: &[(String, String)], query: &str) -> Vec<String> {
     const MAX: usize = 15;
+    let agent = |(n, d): &(String, String)| format!("{AGENT}{n}\t{d}");
     if query.is_empty() {
         let mut top: Vec<&String> = files
             .iter()
             .filter(|f| !f.trim_end_matches('/').contains('/'))
             .collect();
         top.sort_by_key(|f| (!f.ends_with('/'), f.to_lowercase()));
-        return top.into_iter().take(MAX).cloned().collect();
+        let mut out: Vec<String> = top.into_iter().cloned().collect();
+        out.extend(agents.iter().map(agent));
+        out.truncate(MAX);
+        return out;
     }
     let q = query.to_lowercase();
-    let mut ranked: Vec<(u8, usize, &String)> = files
+    let mut ranked: Vec<(u8, usize, String)> = files
         .iter()
         .filter_map(|f| {
             let low = f.to_lowercase();
             let base = low.trim_end_matches('/').rsplit('/').next().unwrap_or("");
-            let rank = if low.starts_with(&q) {
+            let rank = if low.starts_with(&q) && f.ends_with('/') {
                 0
+            } else if low.starts_with(&q) {
+                3
             } else if base.starts_with(&q) {
+                4
+            } else if low.contains(&q) {
+                5
+            } else {
+                return None;
+            };
+            Some((rank, f.len(), f.clone()))
+        })
+        .collect();
+    // at most two agents between the paths that start with the query and the rest
+    let mut found: Vec<(u8, String)> = agents
+        .iter()
+        .filter_map(|a| {
+            let low = a.0.to_lowercase();
+            let rank = if low.starts_with(&q) {
                 1
             } else if low.contains(&q) {
                 2
             } else {
                 return None;
             };
-            Some((rank, f.len(), f))
+            Some((rank, agent(a)))
         })
         .collect();
-    ranked.sort();
-    ranked
-        .into_iter()
-        .take(MAX)
-        .map(|(_, _, f)| f.clone())
-        .collect()
+    found.sort_by_key(|(rank, _)| *rank);
+    ranked.extend(found.into_iter().take(2).map(|(rank, a)| (rank, 0, a)));
+    ranked.sort_by_key(|x| (x.0, x.1));
+    ranked.into_iter().take(MAX).map(|(_, _, f)| f).collect()
 }
 
 /// Files and directories under `cwd`, relative, directories with a trailing slash. Hidden
@@ -1518,6 +1938,19 @@ pub fn editor_name() -> String {
             Some(cmd.rsplit('/').next().unwrap_or(&cmd).to_string())
         })
         .unwrap_or_else(|| "nano".to_string())
+}
+
+/// The editor as Claude Code names it in its hints: `Nvim` for nvim, `nano` as it is.
+pub fn editor_display() -> String {
+    let name = editor_name();
+    match name.as_str() {
+        "nvim" => "Nvim".into(),
+        "vim" => "Vim".into(),
+        "emacs" | "emacsclient" => "Emacs".into(),
+        "code" => "VS Code".into(),
+        "hx" => "Helix".into(),
+        _ => name,
+    }
 }
 
 fn local_hm() -> (u32, u32) {
@@ -1576,6 +2009,24 @@ fn draw_frame(terminal: &mut Terminal, app: &mut App) -> Result<()> {
             f.set_cursor_position(c);
         }
     })?;
+    if !app.link_spots.is_empty() {
+        use crossterm::cursor::{MoveTo, RestorePosition, SavePosition};
+        use crossterm::style::{Print, ResetColor, SetForegroundColor};
+        let mut out = std::io::stdout();
+        let _ = crossterm::queue!(out, SavePosition);
+        for (x, y, text, url, color) in &app.link_spots {
+            let _ = crossterm::queue!(out, MoveTo(*x, *y), Print(format!("\x1b]8;;{url}\x1b\\")));
+            if let ratatui::style::Color::Indexed(n) = color {
+                let _ = crossterm::queue!(
+                    out,
+                    SetForegroundColor(crossterm::style::Color::AnsiValue(*n))
+                );
+            }
+            let _ = crossterm::queue!(out, Print(text), ResetColor, Print("\x1b]8;;\x1b\\"));
+        }
+        let _ = crossterm::queue!(out, RestorePosition);
+        let _ = std::io::Write::flush(&mut out);
+    }
     Ok(())
 }
 

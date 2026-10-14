@@ -298,10 +298,9 @@ pub fn mismatches(look: &Buffer, reference: &Buffer, masks: &[&str]) -> Vec<Stri
 /// transient effort notice and the random placeholder.
 pub const COMMON: &[&str] = &[
     r"^[ ▐▛█▜▝▀▌▘▟▙]{9}",
-    r"(?:Claude Code|Wizard) v[0-9.]+",
+    r"(?:Claude Code v[0-9.]+|Wizard v3\.8\.10)",
     r"^.{11}\S.* · (?:Claude Max|Fastest for quick answers)\s*$",
-    r"^\s+[○◐●◉] \w+ · /effort\s*$",
-    r" [○◐●◉] \w+ · /effort ",
+    r"[○◐●◉] \w+ · /effort",
     r"Try .*$",
     r" · ← \d+ agents?",
     r"^✻ \S+ for \d+s · done \d+:\d\d [AP]M",
@@ -311,6 +310,13 @@ pub const COMMON: &[&str] = &[
 pub fn assert_matches(hn: &mut Harness, name: &str, extra: &[&str]) {
     let reference = reference(name);
     let t = hn.render();
+    let header = t.row(1);
+    if header.contains("Wizard v") {
+        assert!(
+            header.trim_end().ends_with("Wizard v3.8.10"),
+            "{name}: header {header:?}"
+        );
+    }
     let masks: Vec<&str> = COMMON.iter().chain(extra).copied().collect();
     let bad = mismatches(t.buffer(), &reference, &masks);
     assert!(

@@ -38,6 +38,8 @@ if [ "${REF:-}" = live ]; then
     python3 "$here/drive.py" --target ref --cmd "$cmd --settings '{\"tui\":\"fullscreen\",\"theme\":\"light\"}'" --cwd "$cwd" --out "$ref" --group light --sizes "$sizes"
     python3 "$here/drive.py" --target ref --cmd "$cmd --settings '{\"tui\":\"fullscreen\"}'" --cwd "$cwd" --out "$ref" --group turn --sizes "$sizes" \
         --before "printf 'fn main() {\n    println!(\"hello\");\n}\n' > main.rs"
+    python3 "$here/drive.py" --target ref --cmd "$cmd --settings '{\"tui\":\"fullscreen\"}'" --cwd "$cwd" --out "$ref" --group turn2 --sizes 80x24,120x40 \
+        --before "rm -rf w.txt .git"
     # scrub what is personal: the account's address and organisation, the home directory
     python3 - "$ref" <<'PY'
 import glob, re, sys
@@ -58,13 +60,16 @@ else
 fi
 
 python3 "$here/mkreplay.py" "$ref" "$cwd" "$work/replay"
+home="$crate/tests/fixtures/home"
 for size in $(echo "$sizes" | tr , ' '); do
-    for group in static turn light; do
+    for group in static turn light turn2 wizard; do
         script="$work/replay/$group-$size.jsonl" theme=dark
         [ "$group" = light ] && script="$work/replay/static-$size.jsonl" theme=light
+        [ -f "$ref/md-$size.ansi" ] || [ "$group" != turn2 ] || continue
         reset
+        rm -rf "$cwd/w.txt" "$cwd/.git"
         python3 "$here/drive.py" --target look --cwd "$cwd" --out "$work/look" --group "$group" --sizes "$size" \
-            --cmd "env CLAUDEW_BACKEND=replay CLAUDEW_REPLAY=$script $bin --theme $theme --cwd $cwd" > /dev/null
+            --cmd "env HOME=$home CLAUDEW_BACKEND=replay CLAUDEW_REPLAY=$script $bin --theme $theme --cwd $cwd" > /dev/null
     done
 done
 echo "captures and report in $work"

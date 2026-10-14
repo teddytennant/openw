@@ -5,7 +5,7 @@ use agent_core::{PermissionRequest, ToolKind};
 use ratatui::buffer::Buffer;
 use ratatui::style::{Color, Modifier, Style};
 
-use crate::app::{effort_glyph, permission_options, App, Dialog, VERSION};
+use crate::app::{effort_glyph, permission_options, App, Dialog};
 use crate::text::{blit, put, truncate, width, wrap, wrap_str, Row, Span};
 use crate::ui::{diff, prompt};
 
@@ -31,6 +31,8 @@ pub fn draw(buf: &mut Buffer, app: &mut App, dialog: &Dialog) -> u16 {
         Dialog::Model { sel } => model(app, *sel, w as usize, h as usize),
         Dialog::Status => status(app, w as usize),
         Dialog::Resume { sel, query } => resume(app, *sel, query, w as usize, h as usize),
+        Dialog::Rewind { sel } => rewind(app, *sel, w as usize, h as usize),
+        Dialog::Search { query, sel } => search(app, query, *sel, w as usize),
         Dialog::Permission { .. } => return h,
     };
     let need = (panel.top.len() + panel.bottom.len() + 1) as u16;
@@ -41,8 +43,17 @@ pub fn draw(buf: &mut Buffer, app: &mut App, dialog: &Dialog) -> u16 {
     .max(2)
     .min(h);
     let top = h - height;
-    put(buf, 0, top, &"▔".repeat(w as usize), th.fg(th.suggestion));
-    if let Some(n) = &app.notice {
+    let edge = if matches!(dialog, Dialog::Search { .. }) {
+        "─"
+    } else {
+        "▔"
+    };
+    put(buf, 0, top, &edge.repeat(w as usize), th.fg(th.suggestion));
+    let notice = match dialog {
+        Dialog::Model { .. } => crate::app::effort_notice_text(&app.cfg.effort),
+        _ => app.notice.clone(),
+    };
+    if let Some(n) = &notice {
         let x = (w as usize).saturating_sub(width(n) + 3);
         put(buf, x as u16, top, &format!(" {n} "), th.dim());
     }
@@ -102,14 +113,24 @@ const HELP_BLUE: Color = Color::Indexed(110);
 fn help(app: &App, tab: usize, sel: usize, focus: bool, w: usize, h: usize) -> Panel {
     let th = app.theme;
     let mut top = vec![
-        tabs(app, "Help", &["General", "Commands"], tab, HELP_BLUE, focus),
+        tabs(
+            app,
+            "Help",
+            &["General", "Commands", "Custom commands"],
+            tab,
+            HELP_BLUE,
+            focus,
+        ),
         Row::new(),
     ];
+    let docs = "https://github.com/teddytennant/wizard";
+    if crate::ui::markdown::hyperlinks() {
+        app.links
+            .borrow_mut()
+            .push((docs.to_string(), docs.to_string()));
+    }
     let bottom = vec![
-        Row::of(
-            "   For more help: https://github.com/teddytennant/wizard",
-            Style::new(),
-        ),
+        Row::of(format!("   For more help: {docs}"), Style::new()),
         Row::new(),
         Row::of("   Esc to cancel", th.dim().add_modifier(Modifier::ITALIC)),
     ];
@@ -142,12 +163,24 @@ fn help(app: &App, tab: usize, sel: usize, focus: bool, w: usize, h: usize) -> P
             fill: None,
         };
     }
+    let commands: Vec<_> = sorted_commands(app)
+        .into_iter()
+        .filter(|c| app.custom.contains(&c.name) == (tab == 2))
+        .collect();
     top.push(Row::new());
-    top.push(Row::of("   Browse default commands", Style::new()));
+    if tab == 2 && commands.is_empty() {
+        top.push(Row::of("   No custom commands found", th.dim()));
+        return Panel {
+            top,
+            bottom,
+            fill: None,
+        };
+    }
+    let label = if tab == 2 { "custom" } else { "default" };
+    top.push(Row::of(format!("   Browse {label} commands"), Style::new()));
     top.push(Row::new());
     let room = h.saturating_sub(3 + 1 + top.len() + bottom.len() + 4);
     let shown = (room / 2).max(1);
-    let commands = sorted_commands(app);
     let n = commands.len();
     let first = if sel >= shown { sel + 1 - shown } else { 0 };
     for (i, cmd) in commands.iter().enumerate().skip(first).take(shown) {
@@ -281,7 +314,7 @@ fn status(app: &App, _w: usize) -> Panel {
     ];
     let model = format!("{} ({})", app.model_name(), app.cfg.model);
     let fields: Vec<(&str, String)> = vec![
-        ("Version:", VERSION.to_string()),
+        ("Version:", app.wizard_version()),
         ("Session ID:", app.session_id.clone()),
         ("cwd:", app.opts.cwd.to_string_lossy().into_owned()),
         ("Model:", model),
@@ -429,6 +462,7 @@ fn resume(app: &App, sel: usize, query: &str, w: usize, h: usize) -> Panel {
 pub fn permission(app: &App, req: &PermissionRequest, sel: usize, w: usize) -> Vec<Row> {
     let th = app.theme;
     let accent = th.fg(th.suggestion);
+    let dashes = Row::of("╌".repeat(w), th.fg(th.subtle));
     let mut rows = vec![Row::of("─".repeat(w), accent)];
     let name = req
         .diff
@@ -441,24 +475,42 @@ pub fn permission(app: &App, req: &PermissionRequest, sel: usize, w: usize) -> V
         .unwrap_or(&name)
         .to_string();
     let question: Vec<Span> = match (&req.diff, req.kind) {
-        (Some(d), _) => {
-            let title = if d.old.is_none() {
-                "Create file"
-            } else {
-                "Edit file"
-            };
-            rows.push(Row::of(" ", Style::new()).with(title, accent.add_modifier(Modifier::BOLD)));
+        (Some(d), _) if d.old.is_none() => {
+            rows.push(
+                Row::of(" ", Style::new()).with("Create file", accent.add_modifier(Modifier::BOLD)),
+            );
             rows.push(Row::of(format!(" {short}"), th.dim()));
-            rows.push(Row::of("╌".repeat(w), th.fg(th.subtle)));
-            rows.extend(diff::render(&th, d, 0, w).rows);
-            rows.push(Row::of("╌".repeat(w), th.fg(th.subtle)));
-            let verb = if d.old.is_none() {
-                "create"
-            } else {
-                "make this edit to"
-            };
+            rows.push(dashes.clone());
+            let lines: Vec<&str> = d.new.lines().collect();
+            let nw = lines.len().max(1).to_string().len();
+            for (i, l) in lines.iter().enumerate() {
+                rows.push(
+                    Row::of(
+                        format!("  {:>nw$}", i + 1),
+                        th.fg(th.code[0]).add_modifier(Modifier::DIM),
+                    )
+                    .with(" ", Style::new())
+                    .with(l.to_string(), th.fg(th.code[0])),
+                );
+            }
+            rows.push(dashes);
+            let base = short.rsplit('/').next().unwrap_or(&short).to_string();
             vec![
-                (format!(" Do you want to {verb} "), Style::new()),
+                (" Do you want to create ".into(), Style::new()),
+                (base, th.bold()),
+                ("?".into(), Style::new()),
+            ]
+        }
+        (Some(d), _) => {
+            rows.push(
+                Row::of(" ", Style::new()).with("Edit file", accent.add_modifier(Modifier::BOLD)),
+            );
+            rows.push(Row::of(format!(" {short}"), th.dim()));
+            rows.push(dashes.clone());
+            rows.extend(diff::render(&th, d, 0, w).rows);
+            rows.push(dashes);
+            vec![
+                (" Do you want to make this edit to ".into(), Style::new()),
                 (short, th.bold()),
                 ("?".into(), Style::new()),
             ]
@@ -470,15 +522,31 @@ pub fn permission(app: &App, req: &PermissionRequest, sel: usize, w: usize) -> V
                 _ => req.tool.clone(),
             };
             rows.push(Row::of(" ", Style::new()).with(title, accent.add_modifier(Modifier::BOLD)));
-            rows.push(Row::new());
-            let body = req
+            let command = req
                 .input
                 .get("command")
                 .and_then(|v| v.as_str())
-                .unwrap_or(&req.title);
-            for r in wrap_str(body, Style::new(), w.saturating_sub(6)) {
-                rows.push(indent(r, 3));
+                .unwrap_or(&req.title)
+                .to_string();
+            let about = req
+                .input
+                .get("description")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .or_else(|| {
+                    (req.title != command && !req.title.is_empty()).then(|| req.title.clone())
+                });
+            if let Some(about) = about {
+                for r in wrap_str(&about, th.dim(), w.saturating_sub(2)) {
+                    rows.push(indent(r, 1));
+                }
             }
+            rows.push(dashes.clone());
+            for r in wrap_str(&command, Style::new(), w.saturating_sub(2)) {
+                rows.push(indent(r, 1));
+            }
+            rows.push(dashes);
+            rows.push(Row::of(" This command requires approval", Style::new()));
             rows.push(Row::new());
             vec![(" Do you want to proceed?".into(), Style::new())]
         }
@@ -504,6 +572,178 @@ pub fn permission(app: &App, req: &PermissionRequest, sel: usize, w: usize) -> V
         }
     }
     rows.push(Row::new());
-    rows.push(Row::of(" Esc to cancel", th.dim()));
+    match &app.amend {
+        Some(note) => rows.push(
+            Row::of(" ", Style::new())
+                .with("Tell Wizard what to do differently: ", th.dim())
+                .with(note.clone(), Style::new()),
+        ),
+        None if permission_options(req)[sel.min(permission_options(req).len() - 1)].1
+            == crate::app::Choice::Always =>
+        {
+            rows.push(Row::of(" Esc to cancel", th.dim()))
+        }
+        None => rows.push(Row::of(" Esc to cancel · Tab to amend", th.dim())),
+    }
     rows
+}
+
+fn rewind(app: &App, sel: usize, w: usize, h: usize) -> Panel {
+    let th = app.theme;
+    let targets = app.rewind_targets();
+    let n = targets.len() + 1;
+    let sel = sel.min(n - 1);
+    let mut top = vec![
+        Row::of("   ", Style::new()).with("Rewind", th.fg(th.title).add_modifier(Modifier::BOLD)),
+        Row::new(),
+        Row::of(
+            "   Restore the code and/or conversation to the point before…",
+            Style::new(),
+        ),
+        Row::new(),
+    ];
+    let room = (h / 2).saturating_sub(8).max(2);
+    let first = (sel + 1).saturating_sub(room).min(n.saturating_sub(room));
+    if first > 0 {
+        top.push(Row::of(format!("     ↑ {first} more"), th.dim()));
+    }
+    #[allow(clippy::needless_range_loop)]
+    for i in first..n.min(first + room) {
+        let on = i == sel;
+        let lead = if on {
+            Row::of("   ❯ ", th.fg(th.suggestion))
+        } else {
+            Row::of("     ", Style::new())
+        };
+        let row = if i + 1 == n {
+            let st = if on {
+                th.fg(th.suggestion)
+            } else {
+                Style::new()
+            };
+            lead.with("(current)", st.add_modifier(Modifier::ITALIC))
+        } else {
+            let line = targets[i].lines().next().unwrap_or("");
+            let st = if on {
+                th.fg(th.suggestion)
+            } else {
+                Style::new()
+            };
+            lead.with(truncate(line, w.saturating_sub(8)), st)
+        };
+        top.push(row);
+        top.push(Row::new());
+    }
+    Panel {
+        top,
+        bottom: vec![Row::of(
+            "   Enter to continue · Esc to cancel",
+            th.dim().add_modifier(Modifier::ITALIC),
+        )],
+        fill: None,
+    }
+}
+
+fn search(app: &App, query: &str, sel: usize, w: usize) -> Panel {
+    let th = app.theme;
+    let accent = th.fg(th.suggestion);
+    let hits = app.search_hits(query);
+    const ROWS: usize = 8;
+    let list_w = 50.min(w / 2);
+    let mut top = vec![Row::of("  ", Style::new()).with(
+        "Search prompts · this session",
+        accent.add_modifier(Modifier::BOLD),
+    )];
+    let shown: Vec<usize> = hits
+        .iter()
+        .copied()
+        .take(ROWS.max(sel + 1))
+        .skip((sel + 1).saturating_sub(ROWS))
+        .collect();
+    let preview_w = w.saturating_sub(list_w + 18).max(10);
+    let selected = hits
+        .get(sel)
+        .map(|&i| app.prompts[i].clone())
+        .unwrap_or_default();
+    let mut preview: Vec<String> = wrap_str(&selected, Style::new(), preview_w.saturating_sub(4))
+        .iter()
+        .map(Row::text)
+        .collect();
+    preview.resize(ROWS.saturating_sub(2), String::new());
+    let dim = Style::new().add_modifier(Modifier::DIM);
+    for slot in 0..ROWS {
+        let mut row = Row::new();
+        let pos = ROWS - 1 - slot;
+        match shown.get(pos) {
+            Some(&i) => {
+                let on = hits.get(sel) == Some(&i);
+                let more = slot == 0 && hits.len() > shown.len();
+                row.push(
+                    if on {
+                        "  ❯ "
+                    } else if more {
+                        "  ↑ "
+                    } else {
+                        "    "
+                    },
+                    if on { accent } else { th.dim() },
+                );
+                let at = app.prompt_times.get(i).copied().unwrap_or(app.now_unix);
+                row.push(format!("{:<7}", ago_short(app.now_unix, at)), th.dim());
+                row.push("  ", Style::new());
+                let text = truncate(app.prompts[i].lines().next().unwrap_or(""), list_w - 2);
+                let pad = list_w.saturating_sub(width(&text));
+                row.push(text, if on { accent } else { Style::new() });
+                row.push(" ".repeat(pad), Style::new());
+            }
+            None => {
+                row.push(" ".repeat(list_w + 13), Style::new());
+            }
+        }
+        row.push(" ", Style::new());
+        let inner = preview_w.saturating_sub(2);
+        if slot == 0 {
+            row.push(format!("╭{}╮", "─".repeat(inner)), dim);
+        } else if slot + 1 == ROWS {
+            row.push(format!("╰{}╯", "─".repeat(inner)), dim);
+        } else {
+            let t = &preview[slot - 1];
+            row.push("│", dim);
+            row.push(format!(" {t}"), th.dim());
+            row.push(" ".repeat(inner.saturating_sub(width(t) + 1)), Style::new());
+            row.push("│", dim);
+        }
+        top.push(row);
+    }
+    let inner = w.saturating_sub(6);
+    top.push(Row::of(format!("  ╭{}╮", "─".repeat(inner)), accent));
+    let mut field = Row::of("  │", accent).with(" ", Style::new());
+    if query.is_empty() {
+        field.push("⌕ Filter history…", th.dim());
+    } else {
+        field.push(format!("⌕ {query}"), Style::new());
+    }
+    let pad = (inner + 3).saturating_sub(field.width());
+    field.push(" ".repeat(pad), Style::new());
+    field.push("│", accent);
+    top.push(field);
+    top.push(Row::of(format!("  ╰{}╯", "─".repeat(inner)), accent));
+    Panel {
+        top,
+        bottom: vec![Row::of(
+            "  ↑/↓ to navigate · Enter to use · Esc to cancel",
+            th.dim(),
+        )],
+        fill: None,
+    }
+}
+
+fn ago_short(now: i64, then: i64) -> String {
+    let s = (now - then).max(0);
+    match s {
+        0..=59 => format!("{s}s ago"),
+        60..=3599 => format!("{}m ago", s / 60),
+        3600..=86399 => format!("{}h ago", s / 3600),
+        _ => format!("{}d ago", s / 86400),
+    }
 }

@@ -14,37 +14,39 @@ import argparse, fnmatch, glob, os, re, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cells import parse, visible, fmt
 
+VERSION = '3.8.10'
 BLANK = (' ', (None, None, False, False, False, False, False, False))
 
 # (pattern, replacement). Applied to each row's text on both sides; the replacement takes the
-# style of the first cell it replaces and the rest of the row shifts to fit.
+# style of the first cell it replaces and the rest of the row shifts to fit. Only what changes
+# from run to run is here: placeholders, spinner verbs, clocks, ids, counts.
 NORMALISE = [
-    (r'(Claude Code|Wizard) v[0-9][0-9.a-z-]*', 'Wizard vN'),
     (r'Try ".*"\s*$', 'Try "prompt"'),
-    (r' · ← \d+ agents?', ''),
     (r'^[·✢*✳✶✻✽] \S+…( \(.*\))?\s*$', '* Working…'),
     (r'^✻ \S+ for (\d+[hms] ?)+ · done \d+:\d\d [AP]M', '✻ Worked for Ns · done H:MM XM'),
     (r'\d\d:\d\d [AP]M (\S+)(\s*)$', r'HH:MM XM \1\2'),
     (r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', 'SESSION'),
-    (r'(claude|wizard-ui-claude) --resume', 'wizard-ui-claude --resume'),
     (r'\d+ (second|minute|hour|day)s? ago( · \S+ · [0-9.]+[KMG]?B)?', 'N ago'),
     (r'↓ \d+ more', '↓ N more'),
     (r'\(\d+ of \d+\)', '(N of M)'),
     (r'History \d+/\d+', 'History N/M'),
+]
+
+# Applied to the reference only: its product name and version become what the look must print,
+# so a wrong version in the look is a mismatch. VERSION is filled in from --version.
+REF_ONLY = [
+    (r'Claude Code(?= v\d)', 'Wizard'),
+    (r'(?<=Wizard )v\d[0-9.a-z-]*', 'v{VERSION}'),
+    (r'(?<=Version:)(\s+)2\.\d+\.\d+', r'\g<1>{VERSION}'),
+    (r' · ← \d+ agents?', ''),
+    (r'claude --resume', 'wizard-ui-claude --resume'),
     (r'\bClaude\b(?! Code| API|/| mobile|\.ai)', 'Wizard'),
 ]
 
 # (scene glob, which side the pattern is looked for on, row pattern, reason). The matched span
 # of the row is left out of the diff on both sides. A pattern ending in `$$` masks from the
-# match to the end of the row.
-EXPLAINED = [
-    ('*', 'ref', r'^[ ▐▛█▜▝▀▌▘]{9}(?=  \S)', 'brand mark: Wizard draws its own in the same nine columns'),
-    ('*', 'ref', r'(?<=^.{11})\S+ [0-9.]+( with \w+ effort)? · Wizard \w+\s*$', 'model line: Wizard shows its own model and provider'),
-    ('*', 'ref', r'^\s+[○◐●◉] \w+ · /effort\s*$', 'effort notice: transient in the reference, comes and goes without input'),
-    ('*', 'look', r'^\s+[○◐●◉] \w+ · /effort\s*$', 'effort notice: transient in the reference, comes and goes without input'),
-    ('*', 'ref', r' [○◐●◉] \w+ · /effort (?=▔$)', 'effort notice on a dialog border: transient in the reference'),
-    ('*', 'look', r' [○◐●◉] \w+ · /effort (?=▔$)', 'effort notice on a dialog border: transient in the reference'),
-]
+# match to the end of the row. The rest live in explained.tsv.
+EXPLAINED = []
 
 
 def load_rules(path):
@@ -62,8 +64,8 @@ def text_of(row):
     return ''.join(c if c else '\u200b' for c, _ in row)
 
 
-def normalise(row, w):
-    for pat, rep in NORMALISE:
+def normalise(row, w, rules=None):
+    for pat, rep in (rules if rules is not None else NORMALISE):
         text = text_of(row)
         out, pos = [], 0
         for m in re.finditer(pat, text):
@@ -87,7 +89,8 @@ def compare(ref_path, look_path, scene, extra):
     full = '%s-%s' % (scene, size)
     applies = lambda g: fnmatch.fnmatch(scene, g) or fnmatch.fnmatch(full, g)
     w, h = (int(x) for x in size.split('x'))
-    ref = [normalise(r, w) for r in parse(open(ref_path, encoding='utf-8').read(), w, h)]
+    ref_rules = [(p, r.replace('{VERSION}', VERSION)) for p, r in REF_ONLY] + NORMALISE
+    ref = [normalise(r, w, ref_rules) for r in parse(open(ref_path, encoding='utf-8').read(), w, h)]
     look = [normalise(r, w) for r in parse(open(look_path, encoding='utf-8').read(), w, h)]
     masked = [[None] * w for _ in range(h)]
     for glob_, side, pat, reason in extra:
@@ -103,8 +106,8 @@ def compare(ref_path, look_path, scene, extra):
         for y in [y for y, r in enumerate(ref) if y > top and re.search(rowpat, text_of(r))]:
             del ref[y]
             ref.insert(top, [BLANK] * w)
-            for x in range(w):
-                masked[top][x] = reason
+            del masked[y]
+            masked.insert(top, [reason] * w)
             top += 1
     for glob_, side, pat, reason in EXPLAINED + extra:
         if side in ('drop', 'cursor') or not applies(glob_):
@@ -163,14 +166,65 @@ def compare(ref_path, look_path, scene, extra):
     return bad, explained, lines, ref, look
 
 
+# the brand mark and the header's model line differ by design in every scene
+SHAPE_MASKS = [r'^[ ▐▛█▜▝▀▌▘▟▙]{9}  \S.*$']
+NOTICE = re.compile(r' ?[○◐●◉] \w+ · /effort ?|ctrl\+g to edit in \S+|Esc again to clear')
+
+
+def fields(row):
+    """A row's shape: where each field starts and how it is drawn. A field is a run of cells
+    with no two blanks in a row; its text does not count."""
+    out, x, w = [], 0, len(row)
+    while x < w:
+        if row[x][0] == ' ':
+            x += 1
+            continue
+        start = x
+        while x < w and not (row[x][0] == ' ' and (x + 1 >= w or row[x + 1][0] == ' ')):
+            x += 1
+        out.append((start, visible(row[start][1], row[start][0])))
+    return out
+
+
+def shape(ref_path, look_path):
+    """Rows whose field layout differs. Used where the look is fed Wizard's own data, so the
+    words cannot match but the columns, colours and rows they sit in should."""
+    size = ref_path.rsplit('-', 1)[1][:-5]
+    w, h = (int(x) for x in size.split('x'))
+    grids = []
+    for path in (ref_path, look_path):
+        grid = []
+        for r in parse(open(path, encoding='utf-8').read(), w, h):
+            r = normalise(r, w)
+            for pat in SHAPE_MASKS:
+                for m in re.finditer(pat, text_of(r)):
+                    for x in range(m.start(), min(m.end(), w)):
+                        r[x] = BLANK
+            for m in NOTICE.finditer(text_of(r)):
+                for x in range(m.start(), min(m.end(), w)):
+                    r[x] = BLANK
+            grid.append(r)
+        grids.append(grid)
+    bad = [y for y in range(h) if fields(grids[0][y]) != fields(grids[1][y])]
+    lines = []
+    for y in bad:
+        lines.append('row %d' % y)
+        lines.append('  ref  |%s' % text_of(grids[0][y]).rstrip())
+        lines.append('  look |%s' % text_of(grids[1][y]).rstrip())
+    return len(bad), lines
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('ref')
     ap.add_argument('look')
     ap.add_argument('--report')
     ap.add_argument('--sizes', default='80x24,120x40,200x50')
+    ap.add_argument('--version', default='3.8.10', help="the wizard version the look must show")
     ap.add_argument('--rules', default=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'explained.tsv'))
     a = ap.parse_args()
+    global VERSION
+    VERSION = a.version
     sizes = a.sizes.split(',')
     extra = load_rules(a.rules)
     scenes = sorted({os.path.basename(p).rsplit('-', 1)[0] for p in glob.glob(os.path.join(a.ref, '*.ansi'))})
@@ -208,7 +262,29 @@ def main():
                         mark = ' ' if [cell_key(c) for c in r] == [cell_key(c) for c in l] else '!'
                         f.write('%s %s | %s\n' % (mark, text_of(r).ljust(w), text_of(l).rstrip()))
         print('%-28s %s' % (scene, ' '.join('%14s' % c for c in cols)))
+    wz = sorted({os.path.basename(p).rsplit('-', 1)[0] for p in glob.glob(os.path.join(a.look, 'wz-*.ansi'))})
+    if wz:
+        print('\nWizard data, rows whose layout differs from the reference scene of the same name')
+        print('%-28s %s' % ('scene', ' '.join('%14s' % s for s in sizes)))
+    shape_total = 0
+    for scene in wz:
+        cols = []
+        for size in sizes:
+            rp = os.path.join(a.ref, '%s-%s.ansi' % (scene[3:], size))
+            lp = os.path.join(a.look, '%s-%s.ansi' % (scene, size))
+            if not (os.path.exists(rp) and os.path.exists(lp)):
+                cols.append('-')
+                continue
+            bad, lines = shape(rp, lp)
+            shape_total += bad
+            cols.append(str(bad))
+            if a.report:
+                with open(os.path.join(a.report, '%s-%s.txt' % (scene, size)), 'w', encoding='utf-8') as f:
+                    f.write('%s %s: %d rows differ in layout\n\n%s\n' % (scene, size, bad, '\n'.join(lines)))
+        print('%-28s %s' % (scene, ' '.join('%14s' % c for c in cols)))
     print('\nunexplained mismatched cells: %d' % total)
+    if wz:
+        print('rows laid out differently with Wizard data: %d' % shape_total)
     if reasons:
         print('explained (cells left out of the count):')
         for k, v in sorted(reasons.items(), key=lambda kv: -kv[1]):

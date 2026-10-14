@@ -182,6 +182,38 @@ pub fn wrap(spans: &[Span], max: usize) -> Vec<Row> {
         .collect()
 }
 
+/// [`wrap`] with a first row of `first` columns and the rest of `rest`.
+pub fn wrap_first(spans: &[Span], first: usize, rest: usize) -> Vec<Row> {
+    let mut rows = wrap(spans, first);
+    if rows.len() < 2 || first == rest {
+        return rows;
+    }
+    let head = rows.remove(0);
+    let mut skip = head.text().graphemes(true).count();
+    let mut left: Vec<Span> = Vec::new();
+    for (s, style) in spans {
+        let n = s.graphemes(true).count();
+        if skip >= n {
+            skip -= n;
+            continue;
+        }
+        left.push((s.graphemes(true).skip(skip).collect(), *style));
+        skip = 0;
+    }
+    while let Some((s, _)) = left.first_mut() {
+        let t = s.trim_start().to_string();
+        if t.is_empty() {
+            left.remove(0);
+        } else {
+            *s = t;
+            break;
+        }
+    }
+    let mut out = vec![head];
+    out.extend(wrap(&left, rest));
+    out
+}
+
 pub fn wrap_str(s: &str, style: Style, max: usize) -> Vec<Row> {
     wrap(&[(s.to_string(), style)], max)
 }

@@ -5,16 +5,17 @@
 use agent_core::{NoticeLevel, TodoStatus, ToolCall, ToolKind, ToolStatus};
 use ratatui::style::{Modifier, Style};
 
-use crate::app::{clock_text, App, Block, DONE_VERBS, VERSION};
+use crate::app::{clock_text, App, Block, DONE_VERBS};
 use crate::text::{wrap, wrap_str, Row, Span};
 use crate::theme::Theme;
-use crate::ui::diff;
 use crate::ui::prompt::fmt_secs;
+use crate::ui::{diff, markdown};
 
 /// The Wizard mark: a hat, in the nine columns Claude Code's mascot takes.
 pub const MARK: [&str; 3] = ["    ▟▙   ", "   ▟██▙  ", " ▝▀▀▀▀▀▀▘"];
 
 pub fn rows(app: &App, w: usize, detail: bool) -> Vec<Row> {
+    app.links.borrow_mut().clear();
     let th = app.theme;
     let mut out = header(app, w);
     let blocks = &app.blocks;
@@ -25,7 +26,12 @@ pub fn rows(app: &App, w: usize, detail: bool) -> Vec<Row> {
                 out.push(Row::new());
                 out.extend(user(&th, text, *bash, w));
             }
-            Block::Output { text, accent, dim } => out.extend(output(&th, text, accent, *dim, w)),
+            Block::Output {
+                text,
+                accent,
+                dim,
+                muted,
+            } => out.extend(output(&th, text, accent, *dim, *muted, w)),
             Block::Assistant { text, time } => {
                 if text.trim().is_empty() {
                     i += 1;
@@ -37,7 +43,7 @@ pub fn rows(app: &App, w: usize, detail: bool) -> Vec<Row> {
                     let pad = w.saturating_sub(stamp.chars().count() + 8);
                     out.push(Row::of(" ".repeat(pad), Style::new()).with(stamp, th.dim()));
                 }
-                out.extend(assistant(&th, text, w));
+                out.extend(assistant(app, text, w));
             }
             Block::Thought(text) => {
                 if detail && !text.trim().is_empty() {
@@ -126,7 +132,7 @@ fn header(app: &App, w: usize) -> Vec<Row> {
     let th = app.theme;
     let brand = th.fg(th.brand);
     let mut model = app.model_name();
-    if !app.cfg.effort.is_empty() && app.cfg.effort != "medium" {
+    if !matches!(app.cfg.effort.as_str(), "" | "medium" | "default") {
         model.push_str(&format!(" with {} effort", app.cfg.effort));
     }
     let provider = app.provider();
@@ -140,7 +146,7 @@ fn header(app: &App, w: usize) -> Vec<Row> {
             .with("  ", Style::new())
             .with("Wizard", th.bold())
             .with(" ", Style::new())
-            .with(format!("v{VERSION}"), th.dim()),
+            .with(format!("v{}", app.wizard_version()), th.dim()),
         Row::of(MARK[1], brand)
             .with("  ", Style::new())
             .with(crate::text::truncate(&model, room), th.dim()),
@@ -174,54 +180,16 @@ pub fn short_cwd(cwd: &str, w: usize) -> String {
     format!("/…/{}", parts.last().copied().unwrap_or(""))
 }
 
-/// Inline markdown: `code`, **bold** and *italic*. Anything unbalanced is left as typed.
-pub fn inline(th: &Theme, text: &str, base: Style, code_only: bool) -> Vec<Span> {
-    let mut out: Vec<Span> = Vec::new();
-    let mut plain = String::new();
-    let chars: Vec<char> = text.chars().collect();
-    let find = |from: usize, pat: &[char]| -> Option<usize> {
-        (from..chars.len().saturating_sub(pat.len() - 1)).find(|&k| chars[k..k + pat.len()] == *pat)
-    };
-    let mut i = 0;
-    while i < chars.len() {
-        let c = chars[i];
-        let (open, style): (&[char], Style) = if c == '`' {
-            (&['`'], base.fg(th.suggestion))
-        } else if code_only {
-            (&[], base)
-        } else if c == '*' && chars.get(i + 1) == Some(&'*') {
-            (&['*', '*'], base.add_modifier(Modifier::BOLD))
-        } else if c == '*' && chars.get(i + 1).is_some_and(|n| !n.is_whitespace()) {
-            (&['*'], base.add_modifier(Modifier::ITALIC))
-        } else {
-            (&[], base)
-        };
-        if !open.is_empty() {
-            if let Some(end) = find(i + open.len(), open) {
-                if end > i + open.len() && !chars[i + open.len()..end].contains(&'\n') {
-                    if !plain.is_empty() {
-                        out.push((std::mem::take(&mut plain), base));
-                    }
-                    out.push((chars[i + open.len()..end].iter().collect(), style));
-                    i = end + open.len();
-                    continue;
-                }
-            }
-        }
-        plain.push(c);
-        i += 1;
-    }
-    if !plain.is_empty() {
-        out.push((plain, base));
-    }
-    out
-}
-
 fn user(th: &Theme, text: &str, bash: bool, w: usize) -> Vec<Row> {
     let bg = Style::new().bg(if bash { th.bash_bg } else { th.user_bg });
     let body = bg.fg(th.user_fg);
-    let spans = inline(th, text.trim_end(), body, true);
-    let lines = wrap(&spans, w.saturating_sub(4));
+    let spans = if bash {
+        vec![(text.trim_end().to_string(), body)]
+    } else {
+        markdown::inline_with(th, text.trim_end(), body, None)
+    };
+    // the first row of what you sent runs one column further than the rest
+    let lines = crate::text::wrap_first(&spans, w.saturating_sub(3), w.saturating_sub(4));
     let last = lines.len() - 1;
     lines
         .into_iter()
@@ -236,55 +204,20 @@ fn user(th: &Theme, text: &str, bash: bool, w: usize) -> Vec<Row> {
             if i == last && !bash && text.ends_with(' ') && text.starts_with('/') {
                 row.push(" ", bg);
             }
+            // a wrapped row keeps the space it broke at
+            if i < last {
+                row.push(" ", bg);
+            }
             row
         })
         .collect()
 }
 
-fn assistant(th: &Theme, text: &str, w: usize) -> Vec<Row> {
-    let width = w.saturating_sub(3);
-    let mut body: Vec<Row> = Vec::new();
-    let mut fence = false;
-    for line in text.trim().lines() {
-        let t = line.trim_end();
-        if t.trim_start().starts_with("```") {
-            fence = !fence;
-            continue;
-        }
-        if fence {
-            body.push(Row::of(t.to_string(), Style::new()));
-            continue;
-        }
-        let (lead, rest, base) = if let Some(h) = t.strip_prefix("# ") {
-            let st =
-                Style::new().add_modifier(Modifier::BOLD | Modifier::ITALIC | Modifier::UNDERLINED);
-            ("", h, st)
-        } else if let Some(h) = t.strip_prefix("## ").or_else(|| t.strip_prefix("### ")) {
-            ("", h, Style::new().add_modifier(Modifier::BOLD))
-        } else if let Some(q) = t.strip_prefix("> ") {
-            ("▎ ", q, th.dim().add_modifier(Modifier::ITALIC))
-        } else {
-            ("", t, Style::new())
-        };
-        let hang = list_indent(rest);
-        for (k, r) in wrap(
-            &inline(th, rest, base, false),
-            width.saturating_sub(hang).max(1),
-        )
+fn assistant(app: &App, text: &str, w: usize) -> Vec<Row> {
+    let th = app.theme;
+    let mut links = app.links.borrow_mut();
+    markdown::render(&th, text, w.saturating_sub(3), &mut links)
         .into_iter()
-        .enumerate()
-        {
-            let pad = if k == 0 {
-                String::new()
-            } else {
-                " ".repeat(hang)
-            };
-            let mut row = Row::of(lead, th.dim()).with(pad, Style::new());
-            row.extend(r);
-            body.push(row);
-        }
-    }
-    body.into_iter()
         .enumerate()
         .map(|(i, r)| {
             let mut row = if i == 0 {
@@ -296,20 +229,6 @@ fn assistant(th: &Theme, text: &str, w: usize) -> Vec<Row> {
             row
         })
         .collect()
-}
-
-/// How far a list item's wrapped rows hang under its marker.
-fn list_indent(line: &str) -> usize {
-    let t = line.trim_start();
-    let lead = line.len() - t.len();
-    if t.starts_with("- ") || t.starts_with("* ") {
-        return lead + 2;
-    }
-    let digits = t.chars().take_while(char::is_ascii_digit).count();
-    if digits > 0 && t[digits..].starts_with(". ") {
-        return lead + digits + 2;
-    }
-    0
 }
 
 /// The elbow a tool's result hangs from. The last cell is a no-break space, as Claude Code
@@ -333,8 +252,10 @@ fn hanging(th: &Theme, text: &str, style: Style, w: usize) -> Vec<Row> {
         .collect()
 }
 
-fn output(th: &Theme, text: &str, accent: &str, dim: bool, w: usize) -> Vec<Row> {
-    let base = if dim {
+fn output(th: &Theme, text: &str, accent: &str, dim: bool, muted: bool, w: usize) -> Vec<Row> {
+    let base = if muted {
+        th.dim()
+    } else if dim {
         Style::new().add_modifier(Modifier::DIM)
     } else {
         Style::new()
@@ -352,7 +273,9 @@ fn output(th: &Theme, text: &str, accent: &str, dim: bool, w: usize) -> Vec<Row>
         .into_iter()
         .enumerate()
         .map(|(i, r)| {
-            let mut row = if i == 0 {
+            let mut row = if i == 0 && muted {
+                Row::of(ELBOW, th.dim())
+            } else if i == 0 {
                 Row::of("  ⎿", th.dim()).with("  ", Style::new())
             } else {
                 Row::of("     ", Style::new())
@@ -499,13 +422,15 @@ fn tool(app: &App, t: &ToolCall, w: usize, detail: bool) -> Vec<Row> {
         } else {
             t.title.clone()
         };
+        // the bullet of a call that is still out blinks
+        let on = (app.clock.elapsed().as_millis() / 500).is_multiple_of(2);
         out.push(
-            Row::of("●", th.fg(dot))
+            Row::of(if on { "●" } else { " " }, th.fg(dot))
                 .with(" ", Style::new())
                 .with(title, Style::new()),
         );
         if let Some(c) = command {
-            out.push(Row::of(format!("{ELBOW}$ {c}"), th.dim()));
+            out.push(Row::of(format!("  ⎿  $ {c}"), th.dim()));
         }
         return out;
     }
@@ -541,6 +466,40 @@ fn tool(app: &App, t: &ToolCall, w: usize, detail: bool) -> Vec<Row> {
             text
         };
         out.extend(hanging(&th, &format!("Error: {text}"), th.fg(th.error), w));
+        return out;
+    }
+    if let Some(d) = t.diff.as_ref().filter(|d| d.old.is_none()) {
+        let lines: Vec<&str> = d.new.lines().collect();
+        let nw = lines.len().max(1).to_string().len();
+        let rel = relative(&app.opts.cwd, &d.path);
+        out.push(
+            Row::of(ELBOW, th.dim())
+                .with("Wrote ", Style::new())
+                .with(lines.len().to_string(), th.bold())
+                .with(" lines to ", Style::new())
+                .with(rel, th.bold()),
+        );
+        let shown = if detail {
+            lines.len()
+        } else {
+            lines.len().min(10)
+        };
+        for (i, l) in lines.iter().take(shown).enumerate() {
+            out.push(
+                Row::of(
+                    format!("      {:>nw$}", i + 1),
+                    th.fg(th.code[0]).add_modifier(Modifier::DIM),
+                )
+                .with(" ", Style::new())
+                .with(l.to_string(), th.fg(th.code[0])),
+            );
+        }
+        if shown < lines.len() {
+            out.push(Row::of(
+                format!("     … +{} lines", lines.len() - shown),
+                th.dim(),
+            ));
+        }
         return out;
     }
     if let Some(d) = &t.diff {
@@ -582,4 +541,23 @@ fn tool(app: &App, t: &ToolCall, w: usize, detail: bool) -> Vec<Row> {
         }
     }
     out
+}
+
+/// `path` relative to `from`, with `..` for each directory it climbs, as Claude Code writes
+/// where a new file went.
+pub fn relative(from: &std::path::Path, path: &str) -> String {
+    let to = std::path::Path::new(path);
+    if !to.is_absolute() {
+        return path.to_string();
+    }
+    let a: Vec<_> = from.components().collect();
+    let b: Vec<_> = to.components().collect();
+    let common = a.iter().zip(&b).take_while(|(x, y)| x == y).count();
+    let mut out: Vec<String> = vec!["..".to_string(); a.len() - common];
+    out.extend(
+        b[common..]
+            .iter()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned()),
+    );
+    out.join("/")
 }

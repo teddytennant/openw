@@ -32,7 +32,8 @@ pub struct Theme {
     pub added_fg: Color,
     pub removed_bg: Color,
     pub removed_fg: Color,
-    pub code: [Color; 6],
+    /// Syntax colours for diffs: plain, keyword, name, string, number, comment, macro.
+    pub code: [Color; 7],
 }
 
 const fn c(n: u8) -> Color {
@@ -68,7 +69,7 @@ impl Theme {
             added_fg: c(77),
             removed_bg: c(52),
             removed_fg: c(167),
-            code: [c(231), c(81), c(148), c(186), c(141), c(242)],
+            code: [c(231), c(81), c(148), c(186), c(141), c(242), c(148)],
         }
     }
 
@@ -102,7 +103,7 @@ impl Theme {
             added_fg: c(28),
             removed_bg: c(224),
             removed_fg: c(124),
-            code: [c(16), c(25), c(28), c(94), c(91), c(244)],
+            code: [c(16), c(25), c(28), c(94), c(91), c(244), c(28)],
         }
     }
 

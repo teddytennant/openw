@@ -39,9 +39,10 @@ STATIC = [
     ('slash', [('type', '/'), ('snap', ''), ('keys', 'Down', 'Down'), ('snap', '-down'),
                ('type', 'mo'), ('snap', '-filter'), ('type', 'zzz'), ('snap', '-none'),
                ('keys', 'C-c')]),
+    # the panel takes a few seconds to take keys after it is drawn; Tab sent sooner is lost
     ('help', [('type', '/help'), ('snap', '-typed'), ('keys', 'Enter'),
-              ('until', r'For more help', 15), ('wait', 0.5), ('snap', ''),
-              ('keys', 'Tab'), ('wait', 1.0), ('snap', '-commands'), ('keys', 'Down', 'Down'),
+              ('until', r'For more help', 15), ('wait', 3.0), ('snap', ''),
+              ('keys', 'Tab'), ('wait', 3.0), ('snap', '-commands'), ('keys', 'Down', 'Down'),
               ('snap', '-commands-down'), ('keys', 'Escape'), ('wait', 0.5)]),
     ('model', [('type', '/model'), ('keys', 'Enter'), ('until', r'Select model', 15),
                ('wait', 0.5), ('snap', ''), ('keys', 'Down'), ('snap', '-down'),
@@ -51,6 +52,7 @@ STATIC = [
     ('resume', [('type', '/resume'), ('keys', 'Enter'), ('until', r'Resume session', 15),
                 ('wait', 1.0), ('snap', ''), ('keys', 'Down'), ('snap', '-down'),
                 ('keys', 'Escape'), ('wait', 0.5)]),
+    ('tab', [('type', '/mo'), ('keys', 'Tab'), ('snap', ''), ('keys', 'C-c'), ('wait', 1.0)]),
     ('wrap', [('type', LONG), ('snap', ''), ('keys', 'C-c')]),
     # a double press is two within 800 ms; the hint snap takes longer than that
     ('escape', [('type', 'abc'), ('fast_keys', 'Escape'), ('raw_snap', '-hint'), ('wait', 1.5),
@@ -87,7 +89,41 @@ LIGHT = [
                      ('wait', 0.5), ('snap', ''), ('keys', 'Escape'), ('wait', 1.5), ('snap', '-kept')]),
 ]
 
-GROUPS = {'static': STATIC, 'turn': TURN, 'light': LIGHT}
+P_MD = ('No tools. Output exactly this markdown and nothing else: a table |file|lines| with rows '
+        '|a.rs|3| and |b.rs|120|, then **`src/`** in bold, then [Docs](https://example.com/docs), '
+        'then a fenced rust block containing: fn main() { println!("hi"); }')
+P_GIT = 'Run this exact bash command with the Bash tool: git init -q && echo ok. Then reply with exactly: done'
+P_WRITE = ('Use the Write tool to create w.txt containing the numbers 1 to 30, one per line. '
+           'Then reply with exactly: done')
+
+# A markdown reply and scrolling back over it, a shell command and a new file behind
+# permission prompts, one turned down with Esc and one allowed.
+TURN2 = [
+    ('md', [('type', P_MD), ('keys', 'Enter'), ('idle',), ('snap', ''), ('keys', 'PPage'),
+            ('wait', 1.0), ('snap', '-pgup'), ('keys', 'C-End'), ('wait', 1.0)]),
+    ('bash', [('type', P_GIT), ('keys', 'Enter'), ('until', r'Do you want to proceed', 90),
+              ('wait', 1.0), ('snap', '-permission'), ('keys', 'Escape'), ('idle',), ('snap', '-esc')]),
+    ('write', [('type', P_WRITE), ('keys', 'Enter'), ('until', r'Do you want to create', 90),
+               ('wait', 1.0), ('snap', '-permission'), ('keys', 'Enter'), ('idle',), ('snap', '-done')]),
+]
+
+# The look with Wizard's own models, modes and commands, compared by shape with the
+# reference scenes of the same name.
+WIZARD = [
+    ('wz-home', [('snap', '')]),
+    ('wz-slash', [('type', '/'), ('snap', ''), ('keys', 'C-c'), ('wait', 1.0)]),
+    ('wz-slash-filter', [('type', '/mo'), ('snap', ''), ('keys', 'C-c'), ('wait', 1.0)]),
+    ('wz-modes', [('keys', 'BTab'), ('snap', '-1'), ('keys', 'BTab'), ('snap', '-2'),
+                  ('keys', 'BTab'), ('snap', '-3'), ('keys', 'BTab'), ('snap', '-4')]),
+    ('wz-model', [('type', '/model'), ('keys', 'Enter'), ('wait', 0.5), ('snap', ''),
+                  ('keys', 'Escape'), ('wait', 0.5)]),
+    ('wz-status', [('type', '/status'), ('keys', 'Enter'), ('wait', 0.5), ('snap', ''),
+                   ('keys', 'Escape'), ('wait', 0.5)]),
+    ('wz-help', [('type', '/help'), ('keys', 'Enter'), ('wait', 0.5), ('keys', 'Tab'),
+                 ('snap', '-commands'), ('keys', 'Escape'), ('wait', 0.5)]),
+]
+
+GROUPS = {'static': STATIC, 'turn': TURN, 'light': LIGHT, 'turn2': TURN2, 'wizard': WIZARD}
 
 
 def tmux(*args, check=True):

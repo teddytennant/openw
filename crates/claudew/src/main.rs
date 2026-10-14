@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use agent_core::Request;
 use anyhow::{Context, Result};
-use claudew::app::{self, App, AppOpts, BackendKind, Msg, CLAUDE_VERSION, VERSION};
+use claudew::app::{self, App, AppOpts, BackendKind, Msg, VERSION};
 use tokio::sync::mpsc::unbounded_channel;
 use tuikit::term::{TermGuard, TermOptions};
 
@@ -26,7 +26,7 @@ Options:
   -r, --resume [<SESSION_ID>]    Resume a session by id, or the most recent if omitted
   -p, --print <PROMPT>           Single turn: print the response to stdout and exit
       --permission-mode <MODE>   `plan` starts in plan mode; wizard has no other permission modes
-      --theme <dark|light>       Colours; dark unless told otherwise
+      --theme <dark|light|auto>  Colours; auto reads COLORFGBG, and so does no flag
   -h, --help                     Print help
   -v, --version                  Print version
 
@@ -34,6 +34,7 @@ Environment:
   CLAUDEW_BACKEND=mock           Scripted backend, no model calls
   CLAUDEW_BACKEND=replay         Play back the events in the file CLAUDEW_REPLAY names
   CLAUDEW_WIZARD_BIN             Path to the wizard binary
+  CLAUDEW_THEME=light|dark       Colours, over what COLORFGBG says
 ";
 
 enum Parsed {
@@ -42,7 +43,7 @@ enum Parsed {
 }
 
 fn version() -> String {
-    format!("wizard-ui-claude {VERSION} (claude look {CLAUDE_VERSION})")
+    format!("wizard-ui-claude {VERSION}")
 }
 
 fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
@@ -52,6 +53,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> 
     let mut it = args.into_iter().peekable();
     let mut prompt: Vec<String> = Vec::new();
     let mut rest = false;
+    o.light = light_terminal();
     while let Some(a) = it.next() {
         if rest || !a.starts_with('-') || a == "-" {
             prompt.push(a);
@@ -90,6 +92,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> 
                 other => return Err(format!("unknown permission mode {other}")),
             },
             "--theme" => match value("--theme")?.as_str() {
+                "auto" => o.light = light_terminal(),
                 "light" => o.light = true,
                 "dark" => o.light = false,
                 other => return Err(format!("unknown theme {other}")),
@@ -120,6 +123,20 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> 
         _ => BackendKind::Wizard,
     };
     Ok(Parsed::Run(Box::new(o), single))
+}
+
+/// A light background, as the terminal reports it in `COLORFGBG` (`15;0` is light on dark,
+/// `0;15` dark on light), or as `CLAUDEW_THEME` says.
+fn light_terminal() -> bool {
+    match std::env::var("CLAUDEW_THEME").as_deref() {
+        Ok("light") => return true,
+        Ok("dark") => return false,
+        _ => {}
+    }
+    std::env::var("COLORFGBG")
+        .ok()
+        .and_then(|v| v.rsplit(';').next().and_then(|b| b.parse::<u8>().ok()))
+        .is_some_and(|bg| bg == 7 || bg >= 9)
 }
 
 /// `-p`: send the prompt, print what the model said, exit. Tool calls run inside wizard.

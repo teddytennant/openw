@@ -3,6 +3,7 @@
 
 pub mod dialogs;
 pub mod diff;
+pub mod markdown;
 pub mod prompt;
 pub mod transcript;
 
@@ -37,6 +38,53 @@ pub fn draw(buf: &mut Buffer, app: &mut App) {
     // the status panel sits under one blank row and the transcript's last
     let skip = u16::from(matches!(app.dialog, Some(Dialog::Status)) && top > 1);
     draw_rows(buf, app, &rows, Rect::new(0, skip, area.width, top - skip));
+    if app.scroll > 0 && app.dialog.is_none() && top > 0 {
+        let pill = " Jump to bottom (ctrl+End) ↓ ";
+        let pw = crate::text::width(pill) as u16;
+        let x = area.width.saturating_sub(pw).div_ceil(2);
+        let st = Style::new().bg(app.theme.user_bg).fg(app.theme.user_fg);
+        put(buf, x, top - 1, pill, st);
+    }
+    let links = app.links.borrow().clone();
+    app.link_spots = hyperlinks(buf, &links);
+}
+
+/// Where each link's text appears whole on one row: (column, row, text, url, colour). The
+/// frame loop writes these again inside OSC 8 once the frame is on screen, so the terminal can
+/// open them; the cells themselves stay plain, since a cell holding an escape sequence would be
+/// measured as wide and the cells after it skipped.
+fn hyperlinks(
+    buf: &Buffer,
+    links: &[(String, String)],
+) -> Vec<(u16, u16, String, String, ratatui::style::Color)> {
+    let area = buf.area;
+    let mut out = Vec::new();
+    for (text, url) in links {
+        let want: Vec<&str> =
+            unicode_segmentation::UnicodeSegmentation::graphemes(text.as_str(), true).collect();
+        if want.is_empty() {
+            continue;
+        }
+        for y in area.top()..area.bottom() {
+            let mut x = area.left();
+            while x + want.len() as u16 <= area.right() {
+                // a label counts only where it is drawn as a link; a bare URL anywhere
+                let styled = text.contains("://") || buf[(x, y)].fg == markdown::LINK;
+                let hit = styled
+                    && want
+                        .iter()
+                        .enumerate()
+                        .all(|(i, g)| buf[(x + i as u16, y)].symbol() == *g);
+                if hit {
+                    out.push((x, y, text.clone(), url.clone(), buf[(x, y)].fg));
+                    x += want.len() as u16;
+                } else {
+                    x += 1;
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Draw the tail of `rows` into `area`, `app.scroll` rows up from the end.
@@ -73,7 +121,7 @@ fn draw_detail(buf: &mut Buffer, app: &mut App) {
     }
     let mut hint = format!(
         "Showing detailed transcript · ctrl+o to toggle · ↑↓ scroll · v to open in {} · ? for shortcuts",
-        crate::app::editor_name()
+        crate::app::editor_display()
     );
     if crate::text::width(&hint) + 12 > w as usize {
         hint = "Showing detailed transcript · ctrl+o to toggle · ? for shortcuts".to_string();

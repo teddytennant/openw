@@ -143,3 +143,114 @@ fn the_commands_the_look_answers_are_listed_before_the_backend_is_up() {
         "{names:?}"
     );
 }
+
+#[test]
+fn esc_on_a_permission_prompt_turns_it_down_and_stops_the_turn() {
+    let mut hn = Harness::new("turn2-120x40.jsonl", 120, 40);
+    hn.type_str("md");
+    hn.press(KeyCode::Enter);
+    hn.play();
+    hn.type_str("git");
+    hn.press(KeyCode::Enter);
+    hn.play();
+    assert!(matches!(hn.app.dialog, Some(Dialog::Permission { .. })));
+    hn.sent();
+    hn.press(KeyCode::Esc);
+    let sent = hn.sent();
+    assert!(
+        matches!(sent.first(), Some(Request::Decide { allow: false, .. })),
+        "{sent:?}"
+    );
+    assert_eq!(sent.last(), Some(&Request::Cancel));
+    hn.event(Event::TurnEnd(StopReason::Cancelled));
+    let n = hn.app.blocks.len();
+    assert!(matches!(
+        &hn.app.blocks[n - 2],
+        Block::Output { muted: true, text, .. } if text.starts_with("Interrupted")
+    ));
+    assert!(matches!(hn.app.blocks[n - 1], Block::TurnEnd { .. }));
+}
+
+#[test]
+fn tab_on_a_permission_prompt_sends_a_note_with_the_answer() {
+    let mut hn = Harness::new("turn2-120x40.jsonl", 120, 40);
+    hn.type_str("md");
+    hn.press(KeyCode::Enter);
+    hn.play();
+    hn.type_str("git");
+    hn.press(KeyCode::Enter);
+    hn.play();
+    hn.sent();
+    hn.press(KeyCode::Tab);
+    hn.type_str("use -b main");
+    hn.press(KeyCode::Enter);
+    let sent = hn.sent();
+    assert!(
+        matches!(sent.first(), Some(Request::Decide { allow: true, note, .. }) if note == "use -b main"),
+        "{sent:?}"
+    );
+}
+
+#[test]
+fn the_effort_notice_goes_after_a_while_and_comes_back_for_a_turn() {
+    let mut hn = harness();
+    assert!(hn
+        .app
+        .notice
+        .as_deref()
+        .is_some_and(|n| n.contains("/effort")));
+    hn.advance(9_000);
+    assert_eq!(hn.app.notice, None);
+    hn.type_str("hi");
+    hn.press(KeyCode::Enter);
+    assert!(hn.app.notice.is_some(), "shown again while the turn runs");
+}
+
+#[test]
+fn the_header_and_status_show_wizards_version() {
+    let mut hn = harness();
+    assert_eq!(hn.app.wizard_version(), "3.8.10");
+    let screen = hn.render().plain();
+    assert!(screen.contains("Wizard v3.8.10"), "{screen}");
+    hn.type_str("/status");
+    hn.press(KeyCode::Enter);
+    let screen = hn.render().plain();
+    assert!(screen.contains("Version:           3.8.10"), "{screen}");
+}
+
+#[test]
+fn ctrl_r_finds_an_earlier_prompt() {
+    let mut hn = harness();
+    for p in ["alpha one", "beta two"] {
+        hn.app.submit(p.to_string());
+        hn.event(Event::TurnEnd(StopReason::EndTurn));
+    }
+    hn.ctrl('r');
+    hn.type_str("alp");
+    hn.press(KeyCode::Enter);
+    assert_eq!(hn.app.editor.text(), "alpha one");
+}
+
+#[test]
+fn completing_a_command_shows_what_it_takes() {
+    let mut hn = Harness::new("wizard-120x40.jsonl", 120, 40);
+    hn.type_str("/mod");
+    hn.press(KeyCode::Tab);
+    assert_eq!(hn.app.editor.text(), "/model ");
+    let screen = hn.render().plain();
+    assert!(screen.contains("❯\u{a0}/model  [tag]"), "{screen}");
+}
+
+#[test]
+fn page_up_shows_the_way_back_down() {
+    let mut hn = harness();
+    for n in 0..30 {
+        hn.app.submit(format!("prompt {n}"));
+        hn.event(Event::TurnEnd(StopReason::EndTurn));
+    }
+    hn.render();
+    hn.press(KeyCode::PageUp);
+    assert!(hn.render().plain().contains("Jump to bottom (ctrl+End) ↓"));
+    hn.key(KeyCode::End, crossterm::event::KeyModifiers::CONTROL);
+    assert!(!hn.render().plain().contains("Jump to bottom"));
+}

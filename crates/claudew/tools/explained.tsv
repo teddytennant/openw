@@ -1,47 +1,52 @@
-# scene glob, side (ref, look, both, drop, cursor), row pattern, reason. See compare.py.
-modes-3	ref	⏵⏵ auto mode on \(shift\+tab to cycle\)\s*$	auto mode: the backend has no such mode, so the third press is back at the first
-mention*	ref	^  [ ❯] [+*] .*$	agents in the @ list: the backend has none, so the file rows sit lower
-mention*	look	^  [ ❯] [+*] .*$	agents in the @ list: the backend has none, so the file rows sit lower
-*shortcuts	drop	^─+$@@^\s{45,}\S.*$	paste images and /keybindings: not supported, so the table is two rows shorter
-*shortcuts	ref	(ctrl \+ v to paste images|alt \+ p to switch model|ctrl \+ s to stash prompt|ctrl \+ g to edit in)\s*$	paste images and /keybindings: not supported, so the table is two rows shorter
-*shortcuts	look	(alt \+ p to switch model|ctrl \+ s to stash prompt|ctrl \+ g to edit in( \$EDITOR)?|\$EDITOR)\s*$	paste images and /keybindings: not supported, so the table is two rows shorter
-*shortcuts	both	shift \+ tab to (auto-accept edits|cycle agent modes)	shift+tab cycles the backend's modes; it has no accept-edits mode
-help	both	shift \+ tab to (auto-accept edits|cycle agent modes)	shift+tab cycles the backend's modes; it has no accept-edits mode
+# scene glob, side (ref, look, both, drop, block, cursor), row pattern, reason. See compare.py.
+*	ref	^[ ▐▛█▜▝▀▌▘]{9}(?=  \S)	brand mark: Wizard draws its own in the same nine columns
+*	ref	(?<=^.{11})\S+ [0-9.]+( with \w+ effort)? · Wizard \w+\s*$	model line: the reference names its model and plan, Wizard its model and provider
+*	both	 ?[○◐●◉] \w+ · /effort ?	effort notice: both show it for a few seconds after start and around a turn, and the captures land at different moments
+modes-3	ref	⏵⏵ auto mode on \(shift\+tab to cycle\)\s*$	mode cycle: the reference's third stop is auto mode; the replay gives the look two modes, so its third press is back at the first (wz-modes compares Wizard's own four)
+*shortcuts	drop	^─+$@@^\s{45,}\S.*$	paste images and /keybindings: Wizard's ACP takes text only (image: false) and its keys are fixed, so the table is two rows shorter
+*shortcuts	ref	(ctrl \+ v to paste images|alt \+ p to switch model|ctrl \+ s to stash prompt|ctrl \+ g to edit in)\s*$	paste images and /keybindings: Wizard's ACP takes text only (image: false) and its keys are fixed, so the table is two rows shorter
+*shortcuts	look	(alt \+ p to switch model|ctrl \+ s to stash prompt|ctrl \+ g to edit in( \$EDITOR)?|\$EDITOR)\s*$	paste images and /keybindings: Wizard's ACP takes text only (image: false) and its keys are fixed, so the table is two rows shorter
+*shortcuts	cursor		paste images and /keybindings: the table is two rows shorter, so the prompt sits two rows lower
+*shortcuts	both	shift \+ tab to (auto-accept|cycle agent)( edits| modes)?	shift+tab cycles Wizard's modes; it has no accept-edits mode
+*shortcuts	both	(?<=@ for file paths)\s+(edits|modes)(?=\s)	shift+tab cycles Wizard's modes; it has no accept-edits mode
+help	drop	^▔@@^\s{45,}(ctrl \+ g to edit in( \$EDITOR)?|\$EDITOR|/keybindings to( customize)?|customize)\s*$	paste images and /keybindings: Wizard's ACP takes text only (image: false) and its keys are fixed, so the table is two rows shorter
+help	ref	(ctrl \+ v to paste( images)?|images|alt \+ p to switch( model)?|ctrl \+ s to stash( prompt)?|ctrl \+ g to edit in|ctrl \+ shift \+ _ to( undo)?|undo|model|prompt|ctrl \+ z to suspend|customize|/keybindings to|\$EDITOR)\s*$	paste images and /keybindings: Wizard's ACP takes text only (image: false) and its keys are fixed, so the table's last column is two entries shorter
+help	look	(alt \+ p to switch( model)?|ctrl \+ s to stash( prompt)?|ctrl \+ g to edit in( \$EDITOR)?|ctrl \+ shift \+ _ to( undo)?|undo|model|prompt|ctrl \+ z to suspend|\$EDITOR)\s*$	paste images and /keybindings: Wizard's ACP takes text only (image: false) and its keys are fixed, so the table's last column is two entries shorter
+help	both	shift \+ tab to (auto-accept|cycle agent)( edits| modes)?	shift+tab cycles Wizard's modes; it has no accept-edits mode
+help*	both	https://\S+	docs link: Wizard's, not Anthropic's
+*model*	block	^   Switch between@@^\s*$	model picker text: a pick in Wizard applies to this session only (ACP config options reset on load)
+*model*	both	(?<=effort)( \(default\))? ←/→ to adjust\s*$	effort default: Wizard's efforts include an unnamed provider default, not a marked level
+*model*	both	Enter to (set as default|confirm).*$	model picker keys: no separate default or session-only pick in Wizard
+model-down	both	^   [○◐●◉] .*$	effort per model: Wizard lists one set of efforts, not which models take them
+status	block	^   Session@@^   Esc to cancel	status fields: Wizard reports its session, cwd, model, effort, mode and backend; Version is compared
+status	ref	(?<=Status ) +Config +Usage +Stats\s*$	config, usage and stats tabs: Wizard has no settings editor or usage store behind ACP
+resume*	both	^     (Ctrl\+A to show all projects ·|to preview|search · Esc).*$	resume picker keys: no branch filter, preview or rename in Wizard's session list
+resume*	drop	^@@^     (to preview|search · Esc).*$	resume picker keys: the reference's longer key line takes two rows, so its panel sits a row higher
+*permission*	both	(?<=2\. )Yes, (and switch to accept edits|allow all edits).*$	permission option 2: there is no accept-edits mode to switch to; the rule offered is session-wide edits
+*permission*	ref	^      commands\) for this session \(shift\+tab\)\s*$	permission option 2: there is no accept-edits mode to switch to; the rule offered is session-wide edits
+*permission*	drop	^@@^      commands\) for this session \(shift\+tab\)\s*$	permission option 2: the reference's longer option takes two rows
+edit-permission*-80x24	look	^✻ Worked for Ns · done H:MM XM\s*$	the reference blanks the previous turn's closing row while a permission prompt is open at 80x24 only; not understood, so not copied
+history-1	both	^❯.*$	prompt suggestion: the reference shows a model-predicted next prompt and the first Up goes to it; Wizard predicts none
+history-1	both	^─── History N/M ─+$	prompt suggestion: the reference shows a model-predicted next prompt and the first Up goes to it; Wizard predicts none
+history-1	both	(?<=manual mode on)( · \? for shortcuts)?\s*$	prompt suggestion: the reference shows a model-predicted next prompt and the first Up goes to it; Wizard predicts none
+history-back	both	^❯.*$	prompt suggestion: the reference shows a model-predicted next prompt; Wizard predicts none
+history-2	both	^❯.*$	prompt suggestion: the reference's first Up went to its predicted prompt, so its second lands one entry later
+history-*	both	(?<=^─── )History.*$	history position: the reference counts every prompt saved on this machine, the look this session's
+history-*	cursor		prompt suggestion: the reference's first Up went to its predicted prompt, so the entry shown differs
+compact	ref	^  ⎿\s+Read main\.rs \(4 lines\)\s*$	compact: Wizard's answer does not list the files it keeps in context
+compact-80x24	drop	^@@^  ⎿\s+Read main\.rs \(4 lines\)\s*$	compact: Wizard's answer does not list the files it keeps in context
 exit*	look	^\$\s*$	exit: the reference is still shutting down when the capture is taken
 exit*	cursor		exit: the reference is still shutting down when the capture is taken
-help*	ref	(?<= Commands ) +Custom commands\s*$	custom commands tab: the backend has no custom commands
-help	both	https://\S+	docs link: Wizard's, not Anthropic's
-help-commands*	both	https://\S+	docs link: Wizard's, not Anthropic's
-help-commands*	block	^     /claude-api$@@^     ↓ N more	the reference leaves its bundled skills out of this tab; the backend has no such distinction
-*model*	block	^   Switch between@@^\s*$	model picker text: a pick applies to this session only in Wizard
-*model*	both	(?<=effort)( \(default\))? ←/→ to adjust\s*$	effort default: the backend does not say which level is its default
-*model*	both	Enter to (set as default|confirm).*$	model picker keys: no separate default or session-only pick in Wizard
-resume*	both	^     (Ctrl\+A to show all projects ·|to preview|search · Esc).*$	resume picker keys: no branch filter, preview or rename in Wizard
-edit-permission*	both	(?<=2\. )Yes, (and switch to accept edits|allow all edits).*$	permission option 2: the backend's rule is session-wide edits, there is no accept-edits mode to switch to
-edit-permission*	ref	^      commands\) for this session \(shift\+tab\)\s*$	permission option 2: the backend's rule is session-wide edits, there is no accept-edits mode to switch to
-edit-permission*	ref	(?<=Esc to cancel) · Tab to amend\s*$	amending a permission answer: the backend takes no note with an approval
-history-1	both	^❯.*$	prompt suggestion: the reference shows a model-predicted next prompt and the first Up goes to it
-history-1	both	^─── History N/M ─+$	prompt suggestion: the reference shows a model-predicted next prompt and the first Up goes to it
-history-1	both	(?<=manual mode on)( · \? for shortcuts)?\s*$	prompt suggestion: the reference shows a model-predicted next prompt and the first Up goes to it
-history-back	both	^❯.*$	prompt suggestion: the reference shows a model-predicted next prompt and the first Up goes to it
-compact	ref	^  ⎿\s+Read main\.rs \(4 lines\)\s*$	compact: the backend does not list the files it keeps in context
-status	block	^   Version:@@^   Esc to cancel	status fields: Wizard reports its own version, session, model, effort, mode and backend
-status	ref	(?<=Status ) +Config +Usage +Stats\s*$	config, usage and stats tabs: not in Wizard
-help	drop	^▔@@^\s{45,}\S.*$	paste images and /keybindings: not supported, so the table is two rows shorter
-help	ref	(ctrl \+ v to paste images|alt \+ p to switch model|ctrl \+ s to stash prompt|ctrl \+ g to edit in)\s*$	paste images and /keybindings: not supported, so the table is two rows shorter
-help	look	(alt \+ p to switch model|ctrl \+ s to stash prompt|ctrl \+ g to edit in( \$EDITOR)?|\$EDITOR)\s*$	paste images and /keybindings: not supported, so the table is two rows shorter
-edit-permission*	drop	^@@^      commands\) for this session \(shift\+tab\)\s*$	permission option 2: the backend's rule is session-wide edits, there is no accept-edits mode to switch to
-resume*	drop	^@@^     (to preview|search · Esc).*$	resume picker keys: the reference's longer key line takes two rows, so its panel sits a row higher
-history-2	both	^❯.*$	prompt suggestion: the reference's first Up went to its predicted prompt, so its second lands one entry later
-compact-80x24	drop	^@@^  ⎿\s+Read main\.rs \(4 lines\)\s*$	compact: the backend does not list the files it keeps in context
-*shortcuts	both	shift \+ tab to (auto-accept|cycle agent)( edits| modes)?	shift+tab cycles the backend's modes; it has no accept-edits mode
-*shortcuts	both	(?<=@ for file paths)\s+(edits|modes)(?=\s)	shift+tab cycles the backend's modes; it has no accept-edits mode
-history-*	ref	^\s+ctrl\+r to search history\s*$	history search (ctrl+r): not built
-edit-permission*-80x24	look	^✻ Worked for Ns · done H:MM XM\s*$	the reference blanks the previous turn's closing row while a permission prompt is open at 80x24 only; at 120 and 200 it stays
-model-down	both	^   [○◐●◉] .*$	effort per model: the backend lists one set of efforts, not which models take them
-history-*	both	(?<=^─── )History.*$	history position: the reference counts every prompt saved on this machine, the look this run's
-history-*	cursor		prompt suggestion: the reference's first Up went to its predicted prompt, so the entry shown differs
-*shortcuts	cursor		paste images and /keybindings: not supported, so the table is two rows shorter
+md-*	both	^[● ] (?=Initialize)	the bullet of a call waiting on a permission blinks; the captures catch it in different phases
+bash-*	both	^[● ] (?=Initialize)	the bullet of a call waiting on a permission blinks; the captures catch it in different phases
+bash-permission	drop	^@@^ Tip: auto mode handles these prompts.*$	auto mode: Wizard has none, so no tip about it and no option to switch to it
+bash-permission	drop	^@@^   3\. Yes, and switch to auto mode.*$	auto mode: Wizard has none, so no tip about it and no option to switch to it
+bash-permission	ref	^   4\. No\s*$	auto mode: Wizard has none, so No is the third option, not the fourth
+bash-permission	look	^   3\. No\s*$	auto mode: Wizard has none, so No is the third option, not the fourth
 help-200x50	drop	^▔@@^   (New here\?|Something else\?).*$	powerup tip and /feedback line: Wizard has neither command
-help-commands*-200x50	block	^@@^   Esc to cancel	at 200x50 the reference never settled on this panel: twice its command list was empty, once Tab did not switch tabs
-help-80x24	block	^@@^   Esc to cancel	help at 80x24: the panel overflows the screen and the reference lays it out differently on every capture (a dropped row, a cut bottom, a panel from row 8); its table is four rows taller with paste images and /keybindings
+history-1	both	(ctrl\+r to search history|[○◐●◉] \w+ · /effort)\s*$	prompt suggestion: the reference's first Up went to its predicted prompt, so it is not browsing history yet
+history-back	both	ctrl\+r to search history\s*$	prompt suggestion: the reference's first Up went to its predicted prompt, so after two Downs it is still browsing history
+bash-permission-80x24	drop	^@@^ below\s*$	auto mode: Wizard has none, so no tip about it (here wrapped onto a second row)
+history-2	both	(ctrl\+r to search history|[○◐●◉] \w+ · /effort)\s*$	prompt suggestion: the reference's first Up went to its predicted prompt, so it is one step behind in history
+help-commands*-200x50	look	^   Esc to cancel\s*$	/feedback line: on the reference it pushes Esc to cancel below the screen
+help-commands*-200x50	drop	^@@^   Something else\?.*$	/feedback line: Wizard has no such command

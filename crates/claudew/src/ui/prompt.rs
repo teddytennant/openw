@@ -24,8 +24,9 @@ pub fn draw(buf: &mut Buffer, app: &mut App) -> u16 {
     let n = layout.len().clamp(1, max_input);
     let menu = menu_rows(app, w as usize);
     let above = menu.as_ref().map_or(1, |m| m.len().max(1));
+    let tip = tip(app);
     let spinner = if app.busy.is_some() && menu.is_none() {
-        2
+        2 + usize::from(tip.is_some())
     } else {
         0
     };
@@ -42,7 +43,10 @@ pub fn draw(buf: &mut Buffer, app: &mut App) -> u16 {
 
     if spinner > 0 {
         blit(buf, 0, y + 1, &spinner_row(app));
-        y += 2;
+        if let Some(t) = &tip {
+            blit(buf, 0, y + 2, t);
+        }
+        y += spinner as u16;
     }
     match &menu {
         Some(rows) => {
@@ -57,7 +61,14 @@ pub fn draw(buf: &mut Buffer, app: &mut App) -> u16 {
         None => {
             let esc =
                 matches!(app.hint, Some((Hint::Esc, _))).then(|| "Esc again to clear".to_string());
-            if let Some(n) = esc.as_ref().or(app.notice.as_ref()) {
+            let editor = (app.editor.line_count() > 1)
+                .then(|| format!("ctrl+g to edit in {}", crate::app::editor_display()));
+            let search = app
+                .history_at
+                .is_some()
+                .then(|| "ctrl+r to search history".to_string());
+            let shown = esc.or(search).or(editor).or_else(|| app.notice.clone());
+            if let Some(n) = shown.as_ref() {
                 let x = (w as usize).saturating_sub(width(n) + 2);
                 put(buf, x as u16, y, n, th.dim());
             }
@@ -127,6 +138,11 @@ pub fn draw(buf: &mut Buffer, app: &mut App) -> u16 {
             }
         }
     }
+    if let Some(hint) = arg_hint(app, &text) {
+        if let Some((cx, cy)) = app.cursor {
+            put(buf, cx + 1, cy, hint, th.dim());
+        }
+    }
     y += n as u16;
     put(buf, 0, y, &"─".repeat(w as usize), th.fg(edge));
     y += 1;
@@ -176,6 +192,10 @@ fn footer_row(app: &App) -> Row {
         return row.with("! for shell mode", th.fg(th.bash));
     }
     let cycle = " (shift+tab to cycle)";
+    // no session yet, so no modes to name
+    if app.cfg.modes.is_empty() && !app.plan {
+        return row.with("? for shortcuts", th.dim());
+    }
     let first = match app.mode_index() {
         None => {
             row.push("⏸ plan mode on", th.fg(th.plan));
@@ -186,10 +206,17 @@ fn footer_row(app: &App) -> Row {
             row.push(format!("⏸ {} on", mode_label(&app.cfg.mode)), th.dim());
             true
         }
+        // each of wizard's other modes has its own mark: sovereign runs on its own like
+        // Claude Code's auto mode, chat has no project tools at all
         Some(_) => {
+            let (mark, color) = match app.cfg.mode.as_str() {
+                "sovereign" | "auto" => ("⏵⏵", th.warning),
+                "chat" => ("◇", th.accept),
+                _ => ("⏵⏵", th.accept),
+            };
             row.push(
-                format!("⏵⏵ {} on", mode_label(&app.cfg.mode)),
-                th.fg(th.accept),
+                format!("{mark} {} on", mode_label(&app.cfg.mode)),
+                th.fg(color),
             );
             row.push(cycle, th.dim());
             false
@@ -468,7 +495,15 @@ fn menu_rows(app: &App, w: usize) -> Option<Vec<Row>> {
                     th.secondary
                 });
                 let lead = if selected { "  ❯ " } else { "    " };
-                let text = truncate(&format!("+ {}", items[i]), w.saturating_sub(6));
+                let text = match items[i].strip_prefix(crate::app::AGENT) {
+                    Some(a) => {
+                        let (name, desc) = a.split_once('\t').unwrap_or((a, ""));
+                        let head = format!("* {name} (agent) – ");
+                        let room = w.saturating_sub(4 + width(&head) + 2).min(60);
+                        format!("{head}{}", truncate(desc, room))
+                    }
+                    None => truncate(&format!("+ {}", items[i]), w.saturating_sub(6)),
+                };
                 vec![Row::of(lead, style).with(text, style)]
             };
             Some(window(items.len(), sel.unwrap_or(0), entry))
@@ -503,4 +538,34 @@ fn window(n: usize, sel: usize, entry: impl Fn(usize) -> Vec<Row>) -> Vec<Row> {
 
 pub fn color_or(c: Option<Color>, d: Color) -> Color {
     c.unwrap_or(d)
+}
+
+/// The argument hint a command takes, drawn after it once it is completed with nothing typed
+/// after it: `/model  [model]`.
+fn arg_hint<'a>(app: &'a App, text: &str) -> Option<&'a str> {
+    let name = text.strip_prefix('/')?.strip_suffix(' ')?;
+    if name.contains(' ') {
+        return None;
+    }
+    let cmd = app.commands.iter().find(|c| c.name == name)?;
+    (!cmd.input_hint.is_empty()).then_some(cmd.input_hint.as_str())
+}
+
+/// Things worth knowing about this look, one shown under the spinner once a turn has run a
+/// few seconds.
+const TIPS: [&str; 5] = [
+    "Tip: Press ctrl+o to see every tool call in full",
+    "Tip: Press shift+tab to switch between Wizard's modes",
+    "Tip: Press ctrl+r to search the prompts you sent this session",
+    "Tip: Press esc twice on an empty prompt to go back to an earlier one",
+    "Tip: Press ctrl+g to write the prompt in your editor",
+];
+
+fn tip(app: &App) -> Option<Row> {
+    let busy = app.busy.as_ref()?;
+    if app.clock.elapsed().saturating_sub(busy.since).as_secs() < 3 {
+        return None;
+    }
+    let text = TIPS[app.turns % TIPS.len()];
+    Some(Row::of("  ⎿  ", app.theme.dim()).with(text, app.theme.dim()))
 }

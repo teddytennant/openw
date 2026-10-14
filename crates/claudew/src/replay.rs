@@ -61,6 +61,7 @@ impl Player {
                 Got::Other
             }
             Request::Prompt(_) | Request::PromptWith { .. } | Request::Steer(_) => Got::Prompt,
+            Request::Decide { allow: false, .. } => Got::Cancel,
             Request::Decide { .. } | Request::Answer { .. } => Got::Decide,
             Request::Cancel => Got::Cancel,
             Request::Shutdown => Got::Quit,
@@ -142,6 +143,11 @@ async fn play(steps: Vec<Step>, mut rx: UnboundedReceiver<Request>, tx: Unbounde
                         Got::Quit => return,
                         Got::Prompt if what == "prompt" => break,
                         Got::Decide if what == "decide" => break,
+                        Got::Cancel if what != "prompt" => {
+                            let _ = p.tx.send(Event::TurnEnd(StopReason::Cancelled));
+                            skipping = true;
+                            break;
+                        }
                         _ => {}
                     }
                 }

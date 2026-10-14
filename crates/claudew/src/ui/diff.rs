@@ -28,16 +28,19 @@ pub fn warm() {
     let _ = syntaxes();
 }
 
-struct Highlighter {
+pub struct Highlighter {
     state: Option<ParseState>,
     stack: ScopeStack,
 }
 
 impl Highlighter {
-    fn new(path: &str) -> Highlighter {
+    /// For a file path, or a fenced block's language tag.
+    pub fn new(path: &str) -> Highlighter {
         let ext = path.rsplit('.').next().unwrap_or("");
-        let state = syntaxes()
+        let set = syntaxes();
+        let state = set
             .find_syntax_by_extension(ext)
+            .or_else(|| set.find_syntax_by_token(ext))
             .map(ParseState::new);
         Highlighter {
             state,
@@ -45,8 +48,12 @@ impl Highlighter {
         }
     }
 
+    pub fn known(&self) -> bool {
+        self.state.is_some()
+    }
+
     /// `line` as (text, colour slot) runs; slot indexes `Theme::code`.
-    fn line(&mut self, line: &str) -> Vec<(String, usize)> {
+    pub fn line(&mut self, line: &str) -> Vec<(String, usize)> {
         let Some(state) = &mut self.state else {
             return vec![(line.to_string(), 0)];
         };
@@ -92,10 +99,10 @@ fn slot_of(stack: &ScopeStack) -> usize {
         if name.starts_with("keyword") || name.starts_with("storage") {
             return 1;
         }
-        if name.starts_with("entity.name")
-            || name.starts_with("support.function")
-            || name.starts_with("support.macro")
-        {
+        if name.starts_with("support.function") || name.starts_with("support.macro") {
+            return 6;
+        }
+        if name.starts_with("entity.name") {
             return 2;
         }
     }

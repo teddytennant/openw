@@ -69,10 +69,12 @@ fn slash_menu() {
     each(|w, h, s| {
         let mut hn = Harness::new(&format!("static-{s}.jsonl"), w, h);
         hn.type_str("/");
-        assert_matches(&mut hn, &format!("slash-{s}"), &[]);
+        // the replayed description has the product name as the comparer expects it
+        let named = [r"\((?:Claude|Wizard), Anthropic"];
+        assert_matches(&mut hn, &format!("slash-{s}"), &named);
         hn.press(KeyCode::Down);
         hn.press(KeyCode::Down);
-        assert_matches(&mut hn, &format!("slash-down-{s}"), &[]);
+        assert_matches(&mut hn, &format!("slash-down-{s}"), &named);
         hn.type_str("mo");
         assert_matches(&mut hn, &format!("slash-filter-{s}"), &[]);
         hn.type_str("zzz");

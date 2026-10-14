@@ -9,7 +9,9 @@ reference was put through: `echo hi`, then an edit of main.rs behind a permissio
 """
 import json, os, re, sys, time
 
-ANSI = re.compile(r'\x1b\[[0-9;]*m')
+ANSI = re.compile(r'\x1b\[[0-9;]*m|\x1b\][^\x07\x1b]*(\x07|\x1b\\)')
+# The wizard the look is told it talks to; the header and /status must show this.
+WIZARD_VERSION = '3.8.10'
 
 
 def rows(ref, name, size='200x50'):
@@ -20,6 +22,10 @@ def rows(ref, name, size='200x50'):
 
 
 SIZES = ('200x50', '120x40', '80x24')
+
+
+# argument hints the reference draws after a completed command
+HINTS = {'model': '[model]'}
 
 
 def fill(desc):
@@ -110,7 +116,8 @@ def head(ref, cwd, size):
     for name, desc in [c for l in lists for c in l] + tail:
         if name not in seen:
             seen.add(name)
-            cmds.append({'name': name, 'description': desc, 'input_hint': ''})
+            desc = re.sub(r'\bClaude\b(?! Code| API|/| mobile|\.ai)', 'Wizard', desc)
+            cmds.append({'name': name, 'description': desc, 'input_hint': HINTS.get(name, '')})
     ms = models(ref)
     current = next((n for n, _, cur in ms if cur), ms[0][0] if ms else 'model')
     slug = lambda n: 'claude-' + re.sub(r'[^a-z0-9]+', '-', n.lower()).strip('-')
@@ -118,7 +125,7 @@ def head(ref, cwd, size):
     opts += [{'id': 'extra-%d' % i, 'name': 'Extra %d' % i, 'provider': ''} for i in range(3)]
     config = {
         'model': slug(current), 'models': opts, 'effort': 'medium', 'efforts': ['low', 'medium', 'high'],
-        'mode': 'manual', 'modes': ['manual', 'accept edits'], 'cwd': cwd, 'backend': 'replay',
+        'mode': 'manual', 'modes': ['manual', 'accept edits'], 'cwd': cwd, 'backend': 'wizard ' + WIZARD_VERSION,
     }
     return [
         ev({'Ready': {'session_id': '0191b6f0-3c1a-7a52-9a0e-6d3e9b2f1c44', 'config': config}}),
@@ -175,6 +182,96 @@ def turn(cwd, find):
     ]
 
 
+MD = ('| file | lines |\n|------|-------|\n| a.rs | 3 |\n| b.rs | 120 |\n\n**`src/`**\n\n'
+      '[Docs](https://example.com/docs)\n\n```rust\nfn main() { println!("hi"); }\n```')
+
+
+def md_reply(ref, size):
+    """The markdown reply as the model gave it at this size: at 80x24 it put it in a fenced
+    markdown block, which the reference shows as written."""
+    if any(l.startswith('  ```rust') for l in rows(ref, 'md', size)):
+        return '```markdown\n' + MD + '\n```'
+    return MD
+
+
+def bash_call(ref, size):
+    """The description and command the reference asked about, read off its prompt."""
+    lines = rows(ref, 'bash-permission', size)
+    try:
+        at = next(i for i, l in enumerate(lines) if l.strip() == 'Bash command')
+    except StopIteration:
+        return 'Initialize a git repository', 'git init -q && echo ok'
+    desc, command, inside = [], [], False
+    for l in lines[at + 1:]:
+        if l.startswith('╌'):
+            if inside:
+                break
+            inside = True
+            continue
+        (command if inside else desc).append(l.strip())
+    # the tip above the description can take two rows; the description is the row before the box
+    return ([d for d in desc if d][-1:] or [''])[0], ' '.join(command)
+
+
+def turn2(ref, cwd, size):
+    wait = lambda what: json.dumps({'await': what})
+    sleep = lambda ms: json.dumps({'sleep': ms})
+    end = ev({'TurnEnd': 'end_turn'})
+    desc, command = bash_call(ref, size)
+    call = {'command': command, 'description': desc}
+    path = cwd + '/w.txt'
+    diff = {'path': path, 'old': None, 'new': ''.join('%d\n' % n for n in range(1, 31))}
+    return [
+        wait('prompt'), ev('TurnStart'), sleep(300), ev({'TextDelta': md_reply(ref, size)}), end,
+        wait('prompt'), ev('TurnStart'), sleep(300),
+        tool('b1', 'execute', desc, call, 'pending'),
+        ev({'Permission': {'id': 'p2', 'tool': 'Bash', 'kind': 'execute', 'title': desc, 'input': call,
+                           'diff': None, 'rule': 'git init *'}}),
+        wait('decide'), ev({'TextDelta': 'done'}), end,
+        wait('prompt'), ev('TurnStart'), sleep(300),
+        tool('w1', 'edit', 'w.txt', {'path': path}, 'pending', None, diff),
+        ev({'Permission': {'id': 'p3', 'tool': 'Write', 'kind': 'edit', 'title': path, 'input': {},
+                           'diff': diff, 'rule': 'edits'}}),
+        wait('decide'), sleep(200),
+        tool('w1', 'edit', 'w.txt', {'path': path}, 'completed', None, diff),
+        ev({'TextDelta': 'done'}), end,
+    ]
+
+
+def wizard_head(cwd):
+    """Wizard's own models, efforts, modes and commands, from a recorded `wizard acp` session."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    fixture = os.path.join(here, '..', '..', 'backend-wizard', 'tests', 'fixtures', 'new_session.jsonl')
+    options, commands = [], []
+    for line in open(fixture, encoding='utf-8'):
+        msg = json.loads(line)['msg']
+        res = msg.get('result')
+        if isinstance(res, dict) and 'configOptions' in res:
+            options = res['configOptions']
+        upd = msg.get('params', {}).get('update', {})
+        if 'availableCommands' in upd:
+            commands = upd['availableCommands']
+    def opt(i):
+        return next((o for o in options if o['id'] == i), {})
+    def values(o):
+        return [v['value'] for v in o.get('options', [])]
+    models = [{'id': m, 'name': m.split('/', 1)[-1], 'provider': m.split('/', 1)[0] if '/' in m else ''}
+              for m in values(opt('model'))]
+    config = {
+        'model': opt('model').get('currentValue', ''), 'models': models,
+        'effort': opt('thought_level').get('currentValue', ''), 'efforts': values(opt('thought_level')),
+        'mode': opt('wizard_mode').get('currentValue', ''), 'modes': values(opt('wizard_mode')),
+        'cwd': cwd, 'backend': 'wizard ' + WIZARD_VERSION,
+    }
+    cmds = [{'name': c['name'].lstrip('/'), 'description': c.get('description', ''),
+             'input_hint': (c.get('input') or {}).get('hint', '')} for c in commands]
+    return [
+        ev({'Ready': {'session_id': '2026-10-14T03-00-00', 'config': config}}),
+        ev({'Commands': cmds}),
+        json.dumps({'sessions': []}),
+    ]
+
+
 def main():
     ref, cwd, out = sys.argv[1:4]
     os.makedirs(out, exist_ok=True)
@@ -182,6 +279,8 @@ def main():
         h = head(ref, cwd, size)
         open(os.path.join(out, 'static-%s.jsonl' % size), 'w', encoding='utf-8').write('\n'.join(h) + '\n')
         script = h + turn(cwd, find_command(ref, cwd, size))
+        open(os.path.join(out, 'turn2-%s.jsonl' % size), 'w', encoding='utf-8').write('\n'.join(h + turn2(ref, cwd, size)) + '\n')
+        open(os.path.join(out, 'wizard-%s.jsonl' % size), 'w', encoding='utf-8').write('\n'.join(wizard_head(cwd)) + '\n')
         open(os.path.join(out, 'turn-%s.jsonl' % size), 'w', encoding='utf-8').write('\n'.join(script) + '\n')
 
 
