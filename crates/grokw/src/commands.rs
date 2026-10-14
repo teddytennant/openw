@@ -539,6 +539,11 @@ fn rank_args(q: &str, v: &mut [(u32, PopupItem)]) {
     }
 }
 
+/// The looks `/ui` switches to, as wizard names them.
+const LOOKS: [&str; 7] = [
+    "wizard", "codex", "grok", "opencode", "pi", "jcode", "claude",
+];
+
 /// Argument rows for `/cmd <arg>`: the model list, the effort list, the themes.
 pub fn arg_items(app: &App, cmd: &str, arg: &str) -> Vec<PopupItem> {
     let canon = lookup(cmd).map_or(cmd, |c| c.name);
@@ -601,6 +606,33 @@ pub fn arg_items(app: &App, cmd: &str, arg: &str) -> Vec<PopupItem> {
                                 (*d).to_string()
                             },
                             insert: format!("/theme {n}"),
+                            hits,
+                            range: None,
+                            dir: false,
+                        },
+                    ))
+                })
+                .collect();
+            rank_args(q, &mut v);
+            v.into_iter().map(|(_, i)| i).collect()
+        }
+        "ui" => {
+            let q = arg.trim();
+            let mut v: Vec<(u32, PopupItem)> = LOOKS
+                .iter()
+                .filter_map(|n| {
+                    let (score, hits) = fz(q, n)?;
+                    Some((
+                        score,
+                        PopupItem {
+                            label: (*n).to_string(),
+                            tag: None,
+                            desc: if *n == "grok" {
+                                "this look".to_string()
+                            } else {
+                                String::new()
+                            },
+                            insert: format!("/ui {n}"),
                             hits,
                             range: None,
                             dir: false,
@@ -1184,5 +1216,13 @@ mod tests {
     fn an_exact_argument_is_the_first_row() {
         let rows = arg_items(&app(), "effort", "high");
         assert_eq!(rows[0].insert, "/effort high");
+    }
+
+    #[test]
+    fn ui_offers_the_looks() {
+        let rows = arg_items(&app(), "ui", "");
+        let looks: Vec<&str> = rows.iter().map(|r| r.label.as_str()).collect();
+        assert_eq!(looks, LOOKS);
+        assert_eq!(arg_items(&app(), "ui", "op")[0].insert, "/ui opencode");
     }
 }
