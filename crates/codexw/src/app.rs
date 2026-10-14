@@ -107,6 +107,8 @@ pub struct App<W: Write> {
     pub overlay: Option<Box<dyn Overlay>>,
     /// The `loading` header shown until the session is configured.
     pub placeholder_header: Option<SessionHeaderCell>,
+    /// The tip under the session header.
+    pub tip: &'static str,
     pub config: Config,
     pub commands: Vec<SlashCommand>,
     pub sessions: Vec<SessionInfo>,
@@ -219,6 +221,7 @@ impl<W: Write> App<W> {
             pane,
             overlay: None,
             placeholder_header: Some(header),
+            tip: DEFAULT_TIP,
             config: Config::default(),
             commands: Vec::new(),
             sessions: Vec::new(),
@@ -495,7 +498,7 @@ impl<W: Write> App<W> {
         header.version = self.config.version().to_string();
         let info = SessionInfoCell {
             header,
-            tip: Some(TooltipCell::new(DEFAULT_TIP)),
+            tip: Some(TooltipCell::new(self.tip)),
         };
         let mut tail: Option<BoxedCell> = None;
         match self.switch.take() {

@@ -191,13 +191,13 @@ fn resize_replays_history_at_the_new_width() {
     );
     assert_eq!(full.matches("Wizard (v0.0)").count(), 1, "{full}");
     assert_eq!(full.matches("› hello there").count(), 1, "{full}");
-    // The tip re-wrapped for 80 columns: four rows instead of three.
+    // The tip re-wrapped for 80 columns.
     let tip_rows = full
         .lines()
         .skip_while(|l| !l.contains("Tip:"))
         .take_while(|l| l.starts_with("  "))
         .count();
-    assert!(tip_rows >= 4, "tip rows {tip_rows}\n{full}");
+    assert!(tip_rows >= 2, "tip rows {tip_rows}\n{full}");
 }
 
 #[test]

@@ -6,7 +6,7 @@
 //! redraws, the typed draft, and the Enter that inserts the user message. The terminal-title writes are dropped from both sides. Documented differences:
 //! the model name and version are whatever the scripted config says (`gpt-5.5` and `0.147.0`
 //! here, as in the capture; the loading header gets the same version, which wizard would only
-//! report once it answers), and
+//! report once it answers; the tip is the capture's, not codexw's own), and
 //! the title spinner that Codex runs during MCP startup does not exist in codexw.
 
 mod common;
@@ -15,6 +15,8 @@ use agent_core::{Config, Event};
 use common::*;
 
 const FIXTURE: &[u8] = include_bytes!("fixtures/codex-first-frames-120x36.bin");
+/// The tip the capture drew. codexw's own names no model.
+const CODEX_TIP: &str = "Our most capable model yet. GPT-5.6 Sol can tackle complex code changes, dig into research, produce polished documents, and take on your most ambitious work. Sol is highly capable at lower reasoning efforts\u{2014}try starting lower, then turn it up for harder jobs.";
 
 fn ready() -> Event {
     Event::Ready {
@@ -32,6 +34,7 @@ fn ready() -> Event {
 fn first_frames_match_the_codex_byte_stream() {
     // Placeholder 7 is `Run /review on my current changes`, the one the capture drew.
     let mut h = harness(120, 36, 6);
+    h.app.tip = CODEX_TIP;
     if let Some(header) = h.app.placeholder_header.as_mut() {
         header.version = "0.147.0".into();
     }
@@ -80,6 +83,7 @@ fn first_frames_match_the_codex_byte_stream() {
 #[test]
 fn emulated_screen_matches_start_capture() {
     let mut h = harness(120, 36, 7);
+    h.app.tip = CODEX_TIP;
     h.draw();
     h.app.on_backend(ready());
     h.draw();

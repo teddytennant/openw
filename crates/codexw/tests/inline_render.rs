@@ -80,13 +80,13 @@ fn resize_replays_history_at_the_new_width() {
     assert!(full.lines().all(|l| l.chars().count() <= 80), "{full}");
     assert_eq!(full.matches("Wizard (v3.8.12)").count(), 1);
     assert!(full.contains("• line 4"));
-    // Tip wraps to four rows at 80 columns.
+    // Tip wraps to two rows at 80 columns.
     let tip = full
         .lines()
         .skip_while(|l| !l.contains("Tip:"))
         .take_while(|l| l.starts_with("  "))
         .count();
-    assert_eq!(tip, 4, "{full}");
+    assert_eq!(tip, 2, "{full}");
     assert!(h.screen.scrollback_clears >= 1);
 }
 

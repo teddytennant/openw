@@ -464,9 +464,9 @@ fn raw_arguments_and_the_usage_error() {
 fn raw_lines_are_not_wrapped_by_the_app() {
     let mut h = turn(7, 40, "markdown");
     slash(&mut h, "/raw on");
-    // The 120-column long paragraph reaches the terminal whole; the emulator wraps at its edge.
+    // The 121-column tip reaches the terminal whole; the emulator wraps at its edge.
     let t = h.screen.full_text();
-    assert!(t.contains("docume\nnts"), "{t}");
+    assert!(t.contains("offers\n."), "{t}");
 }
 
 #[test]
