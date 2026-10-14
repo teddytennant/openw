@@ -936,6 +936,10 @@ impl App {
                 self.scroll.to_bottom();
             }
             Event::ConfigChanged(c) => {
+                // `/model x` or `/provider use` typed here is a pick too
+                if !c.model.is_empty() {
+                    self.wanted_model = Some(c.model.clone());
+                }
                 self.config = c.clone();
                 self.transcript.apply(&ev);
             }
@@ -1075,8 +1079,11 @@ impl App {
     /// back to it on every session switch. Pick again whenever they differ, as long as the
     /// model is one wizard offers.
     fn restore_model(&mut self) {
+        // `/ui` from another look hands over the model that session was on
+        let handed_off = std::env::var_os("WIZARD_HANDOFF").is_some();
         let want = match self.wanted_model.clone() {
             Some(m) => Some(m),
+            None if handed_off => None,
             None => self.prefs.recent.first().cloned(),
         };
         let Some(want) = want else { return };

@@ -219,6 +219,28 @@ fn f7_the_model_picked_last_time_comes_back() {
 }
 
 #[test]
+fn a_model_switched_on_wizards_side_survives_a_new_session() {
+    let mut h = Harness::new(120, 36);
+    let mut cfg = h.app.config.clone();
+    let default = cfg.model.clone();
+    let other = cfg
+        .models
+        .iter()
+        .map(|m| m.id.clone())
+        .find(|id| *id != default)
+        .expect("a second model");
+    h.sent();
+    cfg.model = other.clone();
+    h.event(Event::ConfigChanged(cfg.clone()));
+    cfg.model = default;
+    h.event(Event::Ready {
+        session_id: "ses_2".into(),
+        config: cfg,
+    });
+    assert!(h.sent().contains(&Request::SetModel(other)));
+}
+
+#[test]
 fn f7_a_recent_model_wizard_no_longer_offers_is_ignored() {
     let dir = std::env::temp_dir().join(format!("openw-r1-model2-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
