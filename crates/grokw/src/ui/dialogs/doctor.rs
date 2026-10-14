@@ -182,7 +182,11 @@ pub fn run(app: &mut App) {
         // from the home directory: `wizard doctor` checks that the project's .wizard is writable
         // and would create one in whatever directory it runs in
         let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
-        let mut cmd = std::process::Command::new("wizard");
+        // the wizard this look talks to, which need not be the one on PATH
+        let bin = std::env::var_os("OPENW_WIZARD_BIN")
+            .filter(|b| !b.is_empty())
+            .unwrap_or_else(|| "wizard".into());
+        let mut cmd = std::process::Command::new(bin);
         cmd.arg("doctor");
         if let Some(h) = home {
             cmd.current_dir(h);
