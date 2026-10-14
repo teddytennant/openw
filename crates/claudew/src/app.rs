@@ -933,8 +933,9 @@ impl App {
             }
             Event::Notice { level, text } => {
                 let low = text.to_lowercase();
-                if low.contains("plan mode") {
-                    self.plan = low.contains(" on") || low.contains("enabled");
+                // /plan and /omakase answers say where plan mode is; leaving omakase stays in it
+                if let Some(on) = agent_core::plan_mode(&text) {
+                    self.plan = on;
                 }
                 if self.silent > 0 && level == NoticeLevel::Info {
                     return;
@@ -1455,7 +1456,9 @@ impl App {
             KeyCode::Char('j') if ctrl => self.insert_newline(),
             KeyCode::Enter => self.enter(),
             KeyCode::Tab => {
-                self.menu_accept(true);
+                if !self.complete_ui() {
+                    self.menu_accept(true);
+                }
             }
             KeyCode::Up if self.menu_open() => self.menu_move(false),
             KeyCode::Down if self.menu_open() => self.menu_move(true),
@@ -1611,6 +1614,30 @@ impl App {
         if let Some(s) = self.stash.take() {
             self.editor.set_text(&s);
         }
+    }
+
+    /// `/ui <part>` + Tab: the next look whose name starts with what is typed, round the list.
+    fn complete_ui(&mut self) -> bool {
+        const LOOKS: [&str; 7] = [
+            "wizard", "codex", "grok", "opencode", "pi", "jcode", "claude",
+        ];
+        let text = self.editor.text().to_string();
+        let Some(part) = text.strip_prefix("/ui ") else {
+            return false;
+        };
+        let part = part.trim();
+        let at = LOOKS.iter().position(|l| *l == part);
+        let next = match at {
+            // already a full name: Tab moves on to the next look
+            Some(i) => LOOKS[(i + 1) % LOOKS.len()],
+            None => match LOOKS.iter().find(|l| l.starts_with(part)) {
+                Some(l) => l,
+                None => return false,
+            },
+        };
+        self.editor.set_text(&format!("/ui {next}"));
+        self.menu = Menu::None;
+        true
     }
 
     fn toggle_stash(&mut self) {

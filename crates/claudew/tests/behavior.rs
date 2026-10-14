@@ -734,3 +734,13 @@ fn a_resumed_prompt_and_its_tool_keep_their_gap() {
         .expect("prompt");
     assert_eq!(lines[at + 1].trim(), "", "{screen}");
 }
+
+#[test]
+fn ui_tab_completes_the_looks() {
+    let mut hn = harness();
+    hn.app.editor.set_text("/ui op");
+    hn.press(KeyCode::Tab);
+    assert_eq!(hn.app.editor.text(), "/ui opencode");
+    hn.press(KeyCode::Tab);
+    assert_eq!(hn.app.editor.text(), "/ui pi");
+}
