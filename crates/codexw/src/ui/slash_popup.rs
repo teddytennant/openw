@@ -590,7 +590,7 @@ mod tests {
     fn up_from_the_top_wraps_to_the_last_row() {
         let mut p = SlashPopup::new("");
         p.move_up();
-        assert_eq!(p.selected().unwrap().name, "subagents");
+        assert_eq!(p.selected().unwrap().name, "ui");
         p.move_down();
         assert_eq!(p.selected().unwrap().name, "model");
     }

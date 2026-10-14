@@ -282,6 +282,12 @@ pub const COMMANDS: &[CommandSpec] = &[
         true,
     ),
     c("subagents", "switch the active agent thread", Backed, true),
+    c(
+        "ui",
+        "switch look: /ui wizard|codex|grok|opencode|pi|jcode|claude",
+        Backed,
+        false,
+    ),
 ];
 
 /// Commands that exist but are not listed in the popup unless typed.
@@ -316,12 +322,6 @@ pub const HIDDEN_SPECS: &[CommandSpec] = &[
         "show config layers and requirement sources for debugging",
         Client,
         true,
-    ),
-    c(
-        "ui",
-        "list the wizard looks, or switch to one: /ui <name>",
-        Backed,
-        false,
     ),
 ];
 
