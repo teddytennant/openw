@@ -415,7 +415,7 @@ fn resize_redraws_at_the_new_size() {
     assert_eq!((t.area().width, t.area().height), (80, 24));
     // no tip here, so the free height is 2 and the wordmark moves down one row from the
     // reference (which has a tip row); the prompt is 75 wide at col 3 either way
-    assert!(t.row(6).trim().starts_with("█▀▀█"));
+    assert!(t.row(6).trim().starts_with("█   █ █"));
     assert_eq!(
         t.cell(3, 11).map(|c| c.symbol().to_string()),
         Some("┃".into())
