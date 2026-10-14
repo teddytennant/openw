@@ -32,6 +32,7 @@ pub fn draw(buf: &mut Buffer, app: &mut App, dialog: &Dialog) -> u16 {
         Dialog::Status => status(app, w as usize),
         Dialog::Resume { sel, query } => resume(app, *sel, query, w as usize, h as usize),
         Dialog::Rewind { sel } => rewind(app, *sel, w as usize, h as usize),
+        Dialog::RewindConfirm { nth, sel } => rewind_confirm(app, *nth, *sel, w as usize),
         Dialog::Search { query, sel } => search(app, query, *sel, w as usize),
         Dialog::Permission { .. } => return h,
     };
@@ -228,7 +229,7 @@ fn model(app: &App, sel: usize, w: usize, h: usize) -> Panel {
     let mut top = vec![Row::of("   ", Style::new())
         .with("Select model", th.fg(th.title).add_modifier(Modifier::BOLD))];
     let about = "Switch between Wizard models. Your pick applies to this session only. For \
-                 other/previous model names, specify with --model.";
+                 other/previous model names, specify with /model <name>.";
     for r in wrap_str(about, th.dim(), w.saturating_sub(6)) {
         top.push(indent(r, 3));
     }
@@ -294,8 +295,10 @@ fn model(app: &App, sel: usize, w: usize, h: usize) -> Panel {
     top.push(Row::new());
     if !app.cfg.effort.is_empty() {
         let e = app.effort_preview.as_ref().unwrap_or(&app.cfg.effort);
+        // `xhigh` reads `xHigh`, as the reference spells it
         let mut name = e.clone();
-        name[..1].make_ascii_uppercase();
+        let at = usize::from(name.starts_with('x') && name.len() > 1);
+        name[at..at + 1].make_ascii_uppercase();
         let mut row = Row::of("   ", Style::new())
             .with(effort_glyph(e), th.fg(th.brand))
             .with(format!(" {name} effort"), th.dim());
@@ -318,7 +321,11 @@ fn status(app: &App, w: usize) -> Panel {
         tabs(app, "Settings", &["Status"], 0, th.suggestion, false),
         Row::new(),
     ];
-    let model = format!("{} ({})", app.model_name(), app.cfg.model);
+    let model = if app.cfg.model.is_empty() {
+        app.model_name()
+    } else {
+        format!("{} ({})", app.model_name(), app.cfg.model)
+    };
     let fields: Vec<(&str, String)> = vec![
         ("Version:", app.wizard_version()),
         ("Session ID:", app.session_id.clone()),
@@ -383,12 +390,15 @@ fn session_meta(now: i64, s: &agent_core::SessionInfo) -> String {
     out
 }
 
+/// `3.2KB`, `192KB`: one decimal, dropped when it is zero.
 fn human_size(n: u64) -> String {
-    match n {
-        0..1024 => format!("{n}B"),
-        1024..1_048_576 => format!("{:.1}KB", n as f64 / 1024.0),
-        _ => format!("{:.1}MB", n as f64 / 1_048_576.0),
-    }
+    let (v, unit) = match n {
+        0..1024 => return format!("{n}B"),
+        1024..1_048_576 => (n as f64 / 1024.0, "KB"),
+        _ => (n as f64 / 1_048_576.0, "MB"),
+    };
+    let s = format!("{v:.1}");
+    format!("{}{unit}", s.strip_suffix(".0").unwrap_or(&s))
 }
 
 /// The branch `.git/HEAD` names, walking up from `dir`.
@@ -723,6 +733,71 @@ pub fn permission(app: &App, req: &PermissionRequest, sel: usize, w: usize) -> V
         None => rows.push(Row::of(" Esc to cancel · Tab to amend", th.dim())),
     }
     rows
+}
+
+/// The rewind's confirm step: the prompt being gone back to, what happens, and what to do.
+fn rewind_confirm(app: &App, nth: usize, sel: usize, w: usize) -> Panel {
+    let th = app.theme;
+    let accent = th.fg(th.suggestion);
+    let targets = app.rewind_targets();
+    let prompt = targets.get(nth).cloned().unwrap_or_default();
+    let at = app
+        .prompts
+        .iter()
+        .rposition(|p| *p == prompt)
+        .and_then(|i| app.prompt_times.get(i).copied())
+        .unwrap_or(app.now_unix);
+    let bar = Style::new().add_modifier(Modifier::DIM);
+    let mut top = vec![
+        Row::of("   ", Style::new()).with("Rewind", th.fg(th.title).add_modifier(Modifier::BOLD)),
+        Row::new(),
+        Row::of(
+            "   Confirm you want to restore to the point before you sent this message:",
+            Style::new(),
+        ),
+        Row::new(),
+    ];
+    for line in wrap_str(&prompt, Style::new(), w.saturating_sub(6)) {
+        top.push(
+            Row::of("   ", Style::new())
+                .with("│", bar)
+                .with(" ", Style::new())
+                .with(line.text(), Style::new()),
+        );
+    }
+    top.push(
+        Row::of("   ", Style::new())
+            .with("│", bar)
+            .with(" ", Style::new())
+            .with(format!("({})", ago_short(app.now_unix, at)), th.dim()),
+    );
+    top.push(Row::new());
+    // wizard's /rewind truncates the conversation and puts back the files later turns changed
+    top.push(Row::of(
+        "   The conversation will be truncated here.",
+        th.dim(),
+    ));
+    let code = if app.changes_after(nth).is_empty() {
+        "   The code will be unchanged."
+    } else {
+        "   The code will be restored to how it was."
+    };
+    top.push(Row::of(code, th.dim()));
+    top.push(Row::new());
+    for (i, label) in crate::app::REWIND_CHOICES.iter().enumerate() {
+        let on = i == sel;
+        top.push(
+            Row::of(if on { "   ❯ " } else { "     " }, accent)
+                .with(format!("{}.", i + 1), th.dim())
+                .with(" ", Style::new())
+                .with(label.to_string(), if on { accent } else { Style::new() }),
+        );
+    }
+    Panel {
+        top,
+        bottom: Vec::new(),
+        fill: None,
+    }
 }
 
 fn rewind(app: &App, sel: usize, w: usize, h: usize) -> Panel {

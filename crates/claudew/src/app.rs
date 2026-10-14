@@ -18,7 +18,7 @@ use crate::theme::Theme;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// The Claude Code release this look reproduces.
-pub const CLAUDE_VERSION: &str = "2.1.299";
+pub const CLAUDE_VERSION: &str = "2.1.300";
 pub const LOOK: &str = "claude";
 
 pub const SPINNER_FRAMES: [&str; 6] = ["·", "✢", "*", "✶", "✻", "✽"];
@@ -66,6 +66,12 @@ pub const LOCAL_COMMANDS: &[(&str, &str)] = &[
 /// What to do when wizard cannot start a session or has gone away.
 pub const SETUP_HINT: &str =
     "Run `wizard setup` to choose a provider and model, then start this look again.";
+/// Prompt history entries kept on disk and loaded.
+const HISTORY_KEEP: usize = 1000;
+/// Past this size the history file is cut back to its last entries.
+const HISTORY_TRIM_BYTES: u64 = 512 * 1024;
+/// The wait before a refused mode change is sent again.
+const MODE_RETRY: Duration = Duration::from_millis(400);
 const HINT_TTL: Duration = Duration::from_millis(800);
 /// How long the effort notice stays up after start and after a turn.
 /// How long the effort notice stays once the session is up, a turn ends or a model is picked.
@@ -179,6 +185,9 @@ pub enum Menu {
     },
 }
 
+/// The rewind confirm step's options.
+pub const REWIND_CHOICES: [&str; 2] = ["Restore conversation", "Never mind"];
+
 #[derive(Clone, Debug, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 pub enum Dialog {
@@ -201,6 +210,11 @@ pub enum Dialog {
     },
     /// Esc Esc on an empty prompt: pick a prompt to go back to before.
     Rewind {
+        sel: usize,
+    },
+    /// The rewind's confirm step for the `nth` prompt.
+    RewindConfirm {
+        nth: usize,
         sel: usize,
     },
     /// ctrl+r: earlier prompts, filtered by what is typed.
@@ -323,6 +337,12 @@ pub struct App {
     pub fixed_now: bool,
     /// Blocks holding a prompt that waited in the queue.
     pub from_queue: Vec<usize>,
+    /// When to send a mode change wizard turned down again.
+    mode_retry: Option<Duration>,
+    /// The ctrl+r hint: from the second step through history until something is typed.
+    pub search_hint: bool,
+    /// Something was sent this session, a local command included: no placeholder after it.
+    pub submitted: bool,
     /// `/plan` toggles sent for shift+tab whose turn and answer stay out of the transcript.
     silent: usize,
 }
@@ -413,6 +433,9 @@ impl App {
             chord: false,
             fixed_now: false,
             from_queue: Vec::new(),
+            mode_retry: None,
+            search_hint: false,
+            submitted: false,
         };
         app.load_home();
         app
@@ -469,8 +492,14 @@ impl App {
         let Some(file) = dir.map(|d| d.join("history.jsonl")) else {
             return;
         };
-        if let Ok(text) = std::fs::read_to_string(&file) {
-            for line in text.lines() {
+        // read as bytes and decode each line on its own: one bad line costs that line only
+        if let Ok(bytes) = std::fs::read(&file) {
+            let lines: Vec<String> = bytes
+                .split(|b| *b == b'\n')
+                .map(|l| String::from_utf8_lossy(l).into_owned())
+                .collect();
+            let skip = lines.len().saturating_sub(HISTORY_KEEP);
+            for line in &lines[skip..] {
                 let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
                     continue;
                 };
@@ -503,13 +532,45 @@ impl App {
         if let Some(dir) = file.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
+        // a file cut off mid-line gets its new line on a line of its own
+        let len = std::fs::metadata(file).map_or(0, |m| m.len());
+        let mut lead = "";
+        if len > 0 {
+            use std::io::{Read, Seek, SeekFrom};
+            if let Ok(mut f) = std::fs::File::open(file) {
+                let mut last = [0u8; 1];
+                if f.seek(SeekFrom::End(-1)).is_ok()
+                    && f.read_exact(&mut last).is_ok()
+                    && last[0] != b'\n'
+                {
+                    lead = "\n";
+                }
+            }
+        }
         if let Ok(mut f) = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(file)
         {
             use std::io::Write;
-            let _ = writeln!(f, "{line}");
+            let _ = writeln!(f, "{lead}{line}");
+        }
+        // keep the file to the last HISTORY_KEEP entries
+        if len > HISTORY_TRIM_BYTES {
+            if let Ok(bytes) = std::fs::read(file) {
+                let lines: Vec<&[u8]> = bytes
+                    .split(|b| *b == b'\n')
+                    .filter(|l| !l.is_empty())
+                    .collect();
+                if lines.len() > HISTORY_KEEP {
+                    let mut kept = lines[lines.len() - HISTORY_KEEP..].join(&b'\n');
+                    kept.push(b'\n');
+                    let tmp = file.with_extension("jsonl.tmp");
+                    if std::fs::write(&tmp, kept).is_ok() {
+                        let _ = std::fs::rename(&tmp, file);
+                    }
+                }
+            }
         }
     }
 
@@ -518,6 +579,16 @@ impl App {
     /// row above it step aside.
     pub fn streaming(&self) -> bool {
         self.busy.is_some() && matches!(self.blocks.last(), Some(Block::Assistant { .. }))
+    }
+
+    /// An edit's diff placed in its file, unless the edit failed: then nothing changed there.
+    fn placed(&self, mut call: ToolCall) -> ToolCall {
+        if call.status != ToolStatus::Failed {
+            if let Some(d) = call.diff.take() {
+                call.diff = Some(place_diff(&self.opts.cwd, d));
+            }
+        }
+        call
     }
 
     /// Empty until wizard has said which it is; never this crate's own version.
@@ -539,6 +610,9 @@ impl App {
 
     /// The model's display name, as the backend lists it.
     pub fn model_name(&self) -> String {
+        if self.cfg.model.is_empty() {
+            return self.configured("model");
+        }
         self.cfg
             .models
             .iter()
@@ -548,6 +622,9 @@ impl App {
     }
 
     pub fn provider(&self) -> String {
+        if self.cfg.model.is_empty() {
+            return self.configured("active_provider");
+        }
         self.cfg
             .models
             .iter()
@@ -556,10 +633,20 @@ impl App {
             .unwrap_or_default()
     }
 
+    /// A top-level setting from wizard's config, for when no session came up to say it.
+    fn configured(&self, key: &str) -> String {
+        std::env::var_os("HOME")
+            .map(|h| PathBuf::from(h).join(".wizard/config.toml"))
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .and_then(|t| toml_str(&t, key))
+            .unwrap_or_default()
+    }
+
     /// Which entry of the shift+tab cycle is on: an index into the backend's modes, or `None`
     /// for plan mode.
+    /// Where wizard confirmed it is: the footer never shows a mode before wizard is in it.
     pub fn mode_index(&self) -> Option<usize> {
-        let (mode, plan) = self.shown_mode();
+        let (mode, plan) = (self.cfg.mode.clone(), self.plan);
         if plan {
             return None;
         }
@@ -679,7 +766,10 @@ impl App {
                             self.blocks.push(Block::Assistant { text, time })
                         }
                         HistoryItem::Thought(t) => self.blocks.push(Block::Thought(t)),
-                        HistoryItem::Tool(t) => self.blocks.push(Block::Tool(t)),
+                        HistoryItem::Tool(t) => {
+                            let t = self.placed(t);
+                            self.blocks.push(Block::Tool(t))
+                        }
                     }
                 }
                 self.scroll = 0;
@@ -711,10 +801,8 @@ impl App {
                     _ => self.blocks.push(Block::Thought(t)),
                 }
             }
-            Event::Tool(mut call) => {
-                if let Some(d) = call.diff.take() {
-                    call.diff = Some(place_diff(&self.opts.cwd, d));
-                }
+            Event::Tool(call) => {
+                let call = self.placed(call);
                 if let Some(b) = &mut self.busy {
                     b.thinking = false;
                 }
@@ -747,10 +835,13 @@ impl App {
                 self.pump_modes();
             }
             // wizard turned a mode change down because something was running; try it again
+            // wizard turned a mode change down because a turn or its follow-up was still in
+            // flight: try again shortly, and again, until it takes
             Event::Notice { text, .. } if text.starts_with("Options can only be changed") => {
                 if let Some(step) = self.mode_waiting.take() {
                     self.mode_steps.push_front(step);
                 }
+                self.mode_retry = Some(self.clock.elapsed() + MODE_RETRY);
             }
             Event::Notice { text, .. }
                 if agent_core::switched_look(&text).is_some_and(|l| l != LOOK) =>
@@ -838,6 +929,13 @@ impl App {
         let Some(busy) = self.busy.take() else { return };
         self.notice_until = Some(self.clock.elapsed() + NOTICE_TTL);
         let secs = (self.clock.elapsed().saturating_sub(busy.since)).as_secs();
+        // a slash line wizard ran as a command; one it handed to the model gets the done line
+        let since: Vec<&Block> = self
+            .blocks
+            .iter()
+            .rev()
+            .take_while(|b| !matches!(b, Block::User { .. }))
+            .collect();
         let command_turn = self
             .blocks
             .iter()
@@ -846,7 +944,10 @@ impl App {
                 Block::User { text, bash } => Some(text.starts_with('/') && !bash),
                 _ => None,
             })
-            .unwrap_or(false);
+            .unwrap_or(false)
+            && !since
+                .iter()
+                .any(|b| matches!(b, Block::Assistant { .. } | Block::Tool(_)));
         match reason {
             StopReason::Cancelled => {
                 // calls still out when the turn stopped fold away like finished ones
@@ -857,6 +958,25 @@ impl App {
                             t.output = Some(agent_core::INTERRUPTED_OUTPUT.into());
                         }
                     }
+                }
+                // Esc on a plan is a rejection, not an interruption: the plan stays, boxed
+                let rejected_plan = self
+                    .blocks
+                    .iter()
+                    .rev()
+                    .take_while(|b| !matches!(b, Block::User { .. }))
+                    .find_map(|b| match b {
+                        Block::Tool(t) => Some(crate::ui::transcript::is_plan_call(t)),
+                        _ => None,
+                    })
+                    .unwrap_or(false);
+                if rejected_plan {
+                    self.blocks.push(Block::TurnEnd {
+                        verb: busy.verb % DONE_VERBS.len(),
+                        secs,
+                        time: self.now_hm(),
+                    });
+                    return;
                 }
                 self.blocks.push(Block::Output {
                     text: "Interrupted · What should Wizard do instead?".into(),
@@ -885,14 +1005,6 @@ impl App {
                 time: self.now_hm(),
             }),
         }
-        if !self.queued.is_empty() {
-            let next = self.queued.remove(0);
-            let at = self.blocks.len();
-            self.submit(next);
-            if matches!(self.blocks.get(at), Some(Block::User { .. })) {
-                self.from_queue.push(at);
-            }
-        }
     }
 
     // ---- prompts ------------------------------------------------------------------------
@@ -904,12 +1016,14 @@ impl App {
             return;
         }
         self.scroll = 0;
-        if self.prompts.last() != Some(&text) {
-            self.remember(&text);
-        }
+        self.submitted = true;
+        self.search_hint = false;
         self.history_at = None;
         if self.bash_mode {
             self.bash_mode = false;
+            if self.prompts.last() != Some(&text) {
+                self.remember(&text);
+            }
             self.run_shell(text);
             return;
         }
@@ -935,6 +1049,10 @@ impl App {
         if self.busy.is_some() {
             self.queued.push(text);
             return;
+        }
+        // history is what was sent: a queued prompt counts once it goes, not when typed
+        if self.prompts.last() != Some(&text) {
+            self.remember(&text);
         }
         match name.as_str() {
             "exit" | "quit" => {
@@ -1047,7 +1165,8 @@ impl App {
 
     pub fn refresh_menu(&mut self) {
         let text = self.editor.text().to_string();
-        if self.bash_mode {
+        // a recalled `/help` is history, not a command being typed
+        if self.bash_mode || self.history_at.is_some() {
             self.menu = Menu::None;
             return;
         }
@@ -1201,6 +1320,12 @@ impl App {
                 }
             }
             KeyCode::Char('x') if ctrl => self.chord = true,
+            // ctrl+enter, where the terminal reports it, sends the queue now too
+            KeyCode::Enter if ctrl && !self.queued.is_empty() => {
+                if self.busy.is_some() {
+                    self.send(Request::Cancel);
+                }
+            }
             KeyCode::Char('s') if ctrl => self.toggle_stash(),
             KeyCode::Char('p') if alt => self.open_model(),
             KeyCode::BackTab => self.cycle_mode(),
@@ -1238,6 +1363,7 @@ impl App {
                     _ => {
                         if !matches!(key.code, KeyCode::Up | KeyCode::Down) {
                             self.history_at = None;
+                            self.search_hint = false;
                         }
                     }
                 }
@@ -1361,11 +1487,25 @@ impl App {
         self.refresh_menu();
     }
 
+    /// The prompts Up and Down step through: this project's, oldest first. History from other
+    /// directories stays out of the arrows (ctrl+r can reach it).
+    pub fn arrow_history(&self) -> Vec<usize> {
+        let here = self.opts.cwd.to_string_lossy();
+        (0..self.prompts.len())
+            .filter(|&i| {
+                self.prompt_dirs
+                    .get(i)
+                    .is_none_or(|d| d.is_empty() || *d == here)
+            })
+            .collect()
+    }
+
     fn history(&mut self, step: isize) {
-        if self.prompts.is_empty() {
+        let list = self.arrow_history();
+        if list.is_empty() {
             return;
         }
-        let n = self.prompts.len();
+        let n = list.len();
         let next = match (self.history_at, step) {
             (None, s) if s < 0 => {
                 self.draft = self.editor.text().to_string();
@@ -1380,10 +1520,14 @@ impl App {
         if next == self.history_at {
             return;
         }
+        // the reference shows it once you are moving through history, not on the first step
+        if self.history_at.is_some() {
+            self.search_hint = true;
+        }
         self.history_at = next;
         match next {
             Some(i) => {
-                let t = self.prompts[i].clone();
+                let t = self.prompts[list[i]].clone();
                 self.editor.set_text(&t);
             }
             None => {
@@ -1400,8 +1544,7 @@ impl App {
         self.send(Request::Prompt("/plan".into()));
     }
 
-    /// The mode and plan state the footer shows: where the presses so far lead, not yet all
-    /// confirmed by wizard.
+    /// Where the presses so far lead, not yet all confirmed by wizard.
     pub fn shown_mode(&self) -> (String, bool) {
         self.mode_target
             .clone()
@@ -1421,12 +1564,26 @@ impl App {
         } else {
             (mode.clone(), true)
         };
-        if next.1 != plan {
-            self.mode_steps.push_back(ModeStep::Plan);
-        }
-        if next.0 != mode {
-            self.mode_steps.push_back(ModeStep::Mode(next.0.clone()));
-        }
+        // plan mode reads the project, so it never sits on chat, which has no project tools
+        let next = if next.1 && next.0 == "chat" {
+            let base = modes
+                .iter()
+                .find(|m| *m != "chat")
+                .cloned()
+                .unwrap_or(next.0);
+            (base, true)
+        } else {
+            next
+        };
+        // into plan: the base mode first, so plan sits on it; out of plan: plan off first
+        let base = (next.0 != mode).then(|| ModeStep::Mode(next.0.clone()));
+        let toggle = (next.1 != plan).then_some(ModeStep::Plan);
+        let steps = if next.1 {
+            [base, toggle]
+        } else {
+            [toggle, base]
+        };
+        self.mode_steps.extend(steps.into_iter().flatten());
         self.mode_target = Some(next);
         self.pump_modes();
     }
@@ -1444,7 +1601,29 @@ impl App {
                 self.mode_waiting = Some(ModeStep::Mode(m.clone()));
                 self.send(Request::SetMode(m));
             }
-            None => self.mode_target = None,
+            None => {
+                self.mode_target = None;
+                self.flush_queue();
+            }
+        }
+    }
+
+    /// Send the next queued prompt, once the turn is over and every mode change pressed
+    /// before it has been confirmed: a prompt queued after shift+tab runs in that mode.
+    fn flush_queue(&mut self) {
+        if self.busy.is_some()
+            || self.mode_waiting.is_some()
+            || !self.mode_steps.is_empty()
+            || self.queued.is_empty()
+            || self.silent > 0
+        {
+            return;
+        }
+        let next = self.queued.remove(0);
+        let at = self.blocks.len();
+        self.submit(next);
+        if matches!(self.blocks.get(at), Some(Block::User { .. })) {
+            self.from_queue.push(at);
         }
     }
 
@@ -1466,8 +1645,21 @@ impl App {
         }
     }
 
+    /// What the rewind's confirm step offers. Wizard's /rewind restores the conversation (and
+    /// the files the later turns changed); its /compact summarizes everything, not from or up
+    /// to a point, so the reference's two summarize options have nothing behind them here.
+    fn rewind_choice(&mut self, nth: usize, choice: usize) {
+        self.dialog = None;
+        if REWIND_CHOICES[choice] == "Restore conversation" {
+            self.start_rewind(nth);
+        }
+    }
+
     fn close_dialog(&mut self) {
         match self.dialog.take() {
+            Some(Dialog::RewindConfirm { nth, .. }) => {
+                self.dialog = Some(Dialog::Rewind { sel: nth });
+            }
             Some(Dialog::Model { .. }) => {
                 self.effort_preview = None;
                 self.show_effort_notice();
@@ -1655,12 +1847,32 @@ impl App {
                             sel: (at + 1).min(n - 1),
                         })
                     }
-                    KeyCode::Enter => {
-                        self.dialog = None;
-                        if at + 1 < n {
-                            self.start_rewind(at);
-                        }
+                    KeyCode::Enter if at + 1 < n => {
+                        self.dialog = Some(Dialog::RewindConfirm { nth: at, sel: 0 });
                     }
+                    KeyCode::Enter => self.dialog = None,
+                    _ => {}
+                }
+            }
+            Dialog::RewindConfirm { nth, sel } => {
+                let n = REWIND_CHOICES.len();
+                match key.code {
+                    KeyCode::Up => {
+                        self.dialog = Some(Dialog::RewindConfirm {
+                            nth,
+                            sel: sel.saturating_sub(1),
+                        })
+                    }
+                    KeyCode::Down => {
+                        self.dialog = Some(Dialog::RewindConfirm {
+                            nth,
+                            sel: (sel + 1).min(n - 1),
+                        })
+                    }
+                    KeyCode::Char(c @ '1'..='9') if (c as usize - '1' as usize) < n => {
+                        self.rewind_choice(nth, c as usize - '1' as usize)
+                    }
+                    KeyCode::Enter => self.rewind_choice(nth, sel),
                     _ => {}
                 }
             }
@@ -1931,6 +2143,10 @@ impl App {
 
     /// Expire the footer hint and advance the spinner. Returns nothing; sets `dirty`.
     pub fn on_tick(&mut self) {
+        if self.mode_retry.is_some_and(|at| self.clock.elapsed() >= at) {
+            self.mode_retry = None;
+            self.pump_modes();
+        }
         if !self.fixed_now {
             self.now_unix = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1959,7 +2175,7 @@ impl App {
         }
         let elapsed = self.clock.elapsed();
         let hint = self.hint.map(|(_, at)| at + HINT_TTL);
-        [hint, self.notice_until]
+        [hint, self.notice_until, self.mode_retry]
             .into_iter()
             .flatten()
             .min()
@@ -2170,7 +2386,8 @@ pub fn mention_matches(files: &[String], agents: &[(String, String)], query: &st
             .iter()
             .filter(|f| !f.trim_end_matches('/').contains('/'))
             .collect();
-        top.sort_by_key(|f| (!f.ends_with('/'), f.to_lowercase()));
+        // hidden entries after the rest
+        top.sort_by_key(|f| (f.starts_with('.'), !f.ends_with('/'), f.to_lowercase()));
         let mut out: Vec<String> = top.into_iter().cloned().collect();
         out.extend(agents.iter().map(agent));
         out.truncate(MAX);
@@ -2218,7 +2435,8 @@ pub fn mention_matches(files: &[String], agents: &[(String, String)], query: &st
 }
 
 /// Files and directories under `cwd`, relative, directories with a trailing slash. Hidden
-/// entries and build output are left out.
+/// entries are listed but not walked into, as the reference lists `.wizard/`; `.git` and
+/// build output are left out.
 pub fn list_files(cwd: &Path) -> Vec<String> {
     const LIMIT: usize = 5000;
     let mut out = Vec::new();
@@ -2231,9 +2449,10 @@ pub fn list_files(cwd: &Path) -> Vec<String> {
         entries.sort_by_key(|e| e.file_name());
         for e in entries {
             let name = e.file_name().to_string_lossy().into_owned();
-            if name.starts_with('.') || name == "target" || name == "node_modules" {
+            if name == ".git" || name == "target" || name == "node_modules" {
                 continue;
             }
+            let hidden = name.starts_with('.');
             let path = e.path();
             let Ok(rel) = path.strip_prefix(cwd) else {
                 continue;
@@ -2241,7 +2460,9 @@ pub fn list_files(cwd: &Path) -> Vec<String> {
             let rel = rel.to_string_lossy().into_owned();
             if e.file_type().is_ok_and(|t| t.is_dir()) {
                 out.push(format!("{rel}/"));
-                stack.push(path);
+                if !hidden {
+                    stack.push(path);
+                }
             } else {
                 out.push(rel);
             }

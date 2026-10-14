@@ -64,8 +64,7 @@ pub fn draw(buf: &mut Buffer, app: &mut App) -> u16 {
             let editor = (app.editor.line_count() > 1)
                 .then(|| format!("ctrl+g to edit in {}", crate::app::editor_display()));
             let search = app
-                .history_at
-                .is_some()
+                .search_hint
                 .then(|| "ctrl+r to search history".to_string());
             let shown = esc.or(search).or(editor).or_else(|| app.notice.clone());
             if let Some(n) = shown.as_ref() {
@@ -79,7 +78,7 @@ pub fn draw(buf: &mut Buffer, app: &mut App) -> u16 {
     let edge = if app.bash_mode { th.bash } else { th.border };
     put(buf, 0, y, &"─".repeat(w as usize), th.fg(edge));
     if let Some(i) = app.history_at {
-        let label = format!(" History {}/{} ", i + 1, app.prompts.len());
+        let label = format!(" History {}/{} ", i + 1, app.arrow_history().len());
         put(
             buf,
             3,
@@ -114,7 +113,7 @@ pub fn draw(buf: &mut Buffer, app: &mut App) -> u16 {
                 "Press up to edit queued messages",
                 Style::new().add_modifier(Modifier::DIM),
             );
-        } else if app.blocks.is_empty() && app.busy.is_none() {
+        } else if app.blocks.is_empty() && app.busy.is_none() && !app.submitted {
             let ph = crate::app::PLACEHOLDERS[app.placeholder % crate::app::PLACEHOLDERS.len()];
             put(buf, 2, y, ph, Style::new().add_modifier(Modifier::DIM));
         }
@@ -201,7 +200,7 @@ fn footer_row(app: &App) -> Row {
     }
     let cycle = " (shift+tab to cycle)";
     // no session yet, so no modes to name
-    let (shown, plan) = app.shown_mode();
+    let (shown, plan) = (app.cfg.mode.clone(), app.plan);
     if app.cfg.modes.is_empty() && !plan {
         return row.with("? for shortcuts", th.dim());
     }
@@ -228,7 +227,8 @@ fn footer_row(app: &App) -> Row {
             false
         }
     };
-    if app.busy.is_some() {
+    // typing during a turn takes the hint away; Esc would clear the text first
+    if app.busy.is_some() && app.editor.is_empty() {
         row.push(" · esc to interrupt", th.dim());
     } else if first && app.editor.is_empty() && app.menu == Menu::None {
         row.push(" · ? for shortcuts", th.dim());

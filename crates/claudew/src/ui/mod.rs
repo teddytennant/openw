@@ -22,6 +22,7 @@ pub fn draw(buf: &mut Buffer, app: &mut App) {
         return;
     }
     if app.detail {
+        app.link_spots.clear();
         return draw_detail(buf, app);
     }
     let w = area.width as usize;
@@ -63,6 +64,31 @@ fn hyperlinks(
     let area = buf.area;
     let mut out = Vec::new();
     for (text, url) in links {
+        // `prefix\0label`: only the label is the link, and only where the prefix is drawn
+        // right before it (a tool row's `Update(` before its file)
+        let (prefix, label) = text.split_once('\0').unwrap_or(("", text.as_str()));
+        if !prefix.is_empty() {
+            let full = format!("{prefix}{label}");
+            let want: Vec<&str> =
+                unicode_segmentation::UnicodeSegmentation::graphemes(full.as_str(), true).collect();
+            let skip = unicode_segmentation::UnicodeSegmentation::graphemes(prefix, true).count();
+            for y in area.top()..area.bottom() {
+                for x in area.left()..area.right() {
+                    if x + want.len() as u16 > area.right() {
+                        break;
+                    }
+                    let hit = want
+                        .iter()
+                        .enumerate()
+                        .all(|(i, g)| buf[(x + i as u16, y)].symbol() == *g);
+                    if hit {
+                        let lx = x + skip as u16;
+                        out.push((lx, y, label.to_string(), url.clone(), buf[(lx, y)].fg));
+                    }
+                }
+            }
+            continue;
+        }
         let want: Vec<&str> =
             unicode_segmentation::UnicodeSegmentation::graphemes(text.as_str(), true).collect();
         if want.is_empty() {

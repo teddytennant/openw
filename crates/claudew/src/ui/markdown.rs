@@ -136,7 +136,7 @@ pub fn hyperlinks() -> bool {
             return true;
         }
         let program = var("TERM_PROGRAM");
-        if ["iTerm.app", "WezTerm", "vscode", "ghostty", "tmux"].contains(&program.as_str()) {
+        if ["iTerm.app", "WezTerm", "vscode", "ghostty"].contains(&program.as_str()) {
             return true;
         }
         let term = var("TERM");

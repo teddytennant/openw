@@ -142,7 +142,7 @@ pub fn rows(app: &App, w: usize, detail: bool) -> Vec<Row> {
             out.push(row);
         }
         if n + 1 == app.queued.len() {
-            out.push(Row::of("  ctrl+x ctrl+s to send now", th.dim()));
+            out.push(Row::of("  ctrl+enter to send now", th.dim()));
         }
     }
     out
@@ -312,10 +312,20 @@ fn output(th: &Theme, text: &str, accent: &str, dim: bool, muted: bool, w: usize
         .collect()
 }
 
+/// Reads, searches, shell commands and fetches fold into one summary row once done, as the
+/// reference folds them. Any other tool keeps its own row: there is no "used N tools".
 fn folds(t: &ToolCall) -> bool {
     let done = matches!(t.status, ToolStatus::Completed | ToolStatus::Failed);
     let local = t.input.get("local").is_some();
-    done && !local && t.kind != ToolKind::Edit && t.diff.is_none()
+    done && !local
+        && t.kind != ToolKind::Edit
+        && t.diff.is_none()
+        && !is_plan_call(t)
+        && bucket(t).0 != "used"
+}
+
+pub fn is_plan_call(t: &ToolCall) -> bool {
+    t.name == "exit_plan" || t.title.starts_with("exit_plan")
 }
 
 /// What a shell command does, for the folded summary: `find` and `grep` search, `cat` reads.
@@ -378,6 +388,53 @@ fn folded(th: &Theme, group: &[&ToolCall], w: usize) -> Vec<Row> {
         .collect()
 }
 
+/// A plan put up for approval, as the transcript keeps it: `Updated plan`, then once answered
+/// the plan itself, under `User approved` or in a box under `User rejected`.
+fn plan_rows(app: &App, t: &ToolCall, w: usize) -> Vec<Row> {
+    let th = app.theme;
+    let bullet = |text: &str, color| {
+        Row::of("●", th.fg(color))
+            .with(" ", Style::new())
+            .with(text.to_string(), th.bold())
+    };
+    let mut out = vec![bullet("Updated plan", th.success)];
+    let plan = input_str(t, &["plan"]).unwrap_or("");
+    let mut links = Vec::new();
+    match t.status {
+        ToolStatus::Completed => {
+            out.push(Row::new());
+            out.push(bullet("User approved Wizard's plan", th.success));
+            out.push(Row::of(ELBOW, th.dim()).with("Plan saved to: .wizard/plan.md", th.dim()));
+            for r in markdown::render(&th, plan, w.saturating_sub(5), &mut links) {
+                let mut row = Row::of("     ", Style::new());
+                row.extend(r);
+                out.push(row);
+            }
+        }
+        ToolStatus::Failed => {
+            out.push(Row::of(ELBOW, th.dim()).with("User rejected Wizard's plan:", th.dim()));
+            let border = th.fg(th.plan);
+            let inner = w.saturating_sub(9);
+            out.push(
+                Row::of("     ", Style::new()).with(format!("╭{}╮", "─".repeat(inner + 2)), border),
+            );
+            for r in markdown::render(&th, plan, inner, &mut links) {
+                let pad = inner.saturating_sub(r.width());
+                let mut row = Row::of("     ", Style::new()).with("│ ", border);
+                row.extend(r);
+                row.push(" ".repeat(pad), Style::new());
+                row.push(" │", border);
+                out.push(row);
+            }
+            out.push(
+                Row::of("     ", Style::new()).with(format!("╰{}╯", "─".repeat(inner + 2)), border),
+            );
+        }
+        _ => {}
+    }
+    out
+}
+
 fn input_str<'a>(t: &'a ToolCall, keys: &[&str]) -> Option<&'a str> {
     keys.iter()
         .find_map(|k| t.input.get(*k).and_then(|v| v.as_str()))
@@ -437,11 +494,8 @@ fn tool(app: &App, t: &ToolCall, w: usize, detail: bool) -> Vec<Row> {
         ToolStatus::Failed => th.error,
         _ => th.secondary,
     };
-    // the plan itself is in the approval pane, or in the transcript once answered
-    if t.name == "exit_plan" || t.title.starts_with("exit_plan") {
-        return vec![Row::of("●", th.fg(dot))
-            .with(" ", Style::new())
-            .with("Updated plan", th.bold())];
+    if is_plan_call(t) {
+        return plan_rows(app, t, w);
     }
     let (name, arg) = call_label(app, t, detail);
     let command = input_str(t, &["command", "cmd", "script"]);
@@ -474,6 +528,26 @@ fn tool(app: &App, t: &ToolCall, w: usize, detail: bool) -> Vec<Row> {
     } else {
         wrap_str(&format!("({arg})"), Style::new(), w.saturating_sub(col))
     };
+    // the file an edit or write touched opens from its row, as an OSC 8 file:// link
+    if matches!(name.as_str(), "Update" | "Write") && !arg.is_empty() && markdown::hyperlinks() {
+        let path = t
+            .diff
+            .as_ref()
+            .map(|d| d.path.clone())
+            .or_else(|| {
+                input_str(t, &["path", "file_path", "file", "filePath"]).map(str::to_string)
+            })
+            .unwrap_or_default();
+        let abs = if std::path::Path::new(&path).is_absolute() {
+            std::path::PathBuf::from(&path)
+        } else {
+            app.opts.cwd.join(&path)
+        };
+        app.links.borrow_mut().push((
+            format!("{name}(\0{arg}"),
+            format!("file://{}", abs.display()),
+        ));
+    }
     let mut first = Row::of("●", th.fg(dot))
         .with(" ", Style::new())
         .with(name, th.bold());
@@ -497,6 +571,8 @@ fn tool(app: &App, t: &ToolCall, w: usize, detail: bool) -> Vec<Row> {
         } else {
             text
         };
+        // a resumed result already carries the prefix wizard gave it
+        let text = text.strip_prefix("Error: ").unwrap_or(text);
         out.extend(hanging(&th, &format!("Error: {text}"), th.fg(th.error), w));
         return out;
     }

@@ -57,9 +57,32 @@ fn bash_mode() {
 fn mode_cycle() {
     each(|w, h, s| {
         let mut hn = Harness::new(&format!("static-{s}.jsonl"), w, h);
+        // wizard confirms each change as the replay would
+        let confirm = |hn: &mut Harness| {
+            for r in hn.sent() {
+                match r {
+                    agent_core::Request::SetMode(m) => {
+                        let mut cfg = hn.app.cfg.clone();
+                        cfg.mode = m;
+                        hn.event(agent_core::Event::ConfigChanged(cfg));
+                    }
+                    agent_core::Request::Prompt(p) if p == "/plan" => {
+                        hn.event(agent_core::Event::TurnStart);
+                        hn.event(agent_core::Event::Notice {
+                            level: agent_core::NoticeLevel::Info,
+                            text: "plan mode on".into(),
+                        });
+                        hn.event(agent_core::Event::TurnEnd(agent_core::StopReason::EndTurn));
+                    }
+                    _ => {}
+                }
+            }
+        };
         hn.press(KeyCode::BackTab);
+        confirm(&mut hn);
         assert_matches(&mut hn, &format!("modes-1-{s}"), &[]);
         hn.press(KeyCode::BackTab);
+        confirm(&mut hn);
         assert_matches(&mut hn, &format!("modes-2-{s}"), &[]);
     });
 }

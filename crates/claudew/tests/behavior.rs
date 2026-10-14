@@ -40,7 +40,11 @@ fn shift_tab_walks_the_modes_then_plan_and_leaves_no_trace() {
         hn.sent().is_empty(),
         "the second step waits for wizard's answer"
     );
-    assert_eq!(hn.app.mode_index(), None, "the footer already shows plan");
+    assert_eq!(
+        hn.app.mode_index(),
+        Some(0),
+        "the footer waits for wizard to confirm"
+    );
     mode_confirmed(&mut hn, "accept edits");
     assert_eq!(hn.sent(), [Request::Prompt("/plan".into())]);
     plan_answer(&mut hn, "plan mode on");
@@ -69,7 +73,54 @@ fn a_refused_mode_change_is_retried_once_the_turn_ends() {
     hn.event(Event::TurnStart);
     hn.event(Event::TurnEnd(StopReason::EndTurn));
     assert_eq!(hn.sent(), [Request::SetMode("accept edits".into())]);
+    assert_eq!(hn.app.mode_index(), Some(0));
+    mode_confirmed(&mut hn, "accept edits");
     assert_eq!(hn.app.mode_index(), Some(1));
+}
+
+#[test]
+fn a_prompt_queued_behind_a_mode_change_waits_for_it() {
+    let mut hn = harness();
+    hn.type_str("first");
+    hn.press(KeyCode::Enter);
+    hn.event(Event::TurnStart);
+    hn.press(KeyCode::BackTab);
+    hn.type_str("second");
+    hn.press(KeyCode::Enter);
+    hn.sent();
+    hn.event(Event::TurnEnd(StopReason::EndTurn));
+    assert_eq!(
+        hn.sent(),
+        [Request::SetMode("accept edits".into())],
+        "the mode change goes first, and the prompt waits"
+    );
+    mode_confirmed(&mut hn, "accept edits");
+    assert_eq!(hn.sent(), [Request::Prompt("second".into())]);
+}
+
+#[test]
+fn plan_mode_is_never_entered_on_chat() {
+    let mut hn = harness();
+    hn.app.cfg.modes = vec!["genie".into(), "sovereign".into(), "chat".into()];
+    hn.app.cfg.mode = "chat".into();
+    hn.press(KeyCode::BackTab);
+    assert_eq!(hn.sent(), [Request::SetMode("genie".into())]);
+    mode_confirmed(&mut hn, "genie");
+    assert_eq!(hn.sent(), [Request::Prompt("/plan".into())]);
+}
+
+#[test]
+fn up_steps_through_history_past_slash_entries() {
+    let mut hn = harness();
+    for p in ["line one", "/help"] {
+        hn.app.submit(p.to_string());
+        hn.app.dialog = None;
+        hn.event(Event::TurnEnd(StopReason::EndTurn));
+    }
+    hn.press(KeyCode::Up);
+    assert_eq!(hn.app.editor.text(), "/help");
+    hn.press(KeyCode::Up);
+    assert_eq!(hn.app.editor.text(), "line one");
 }
 
 #[test]
@@ -387,7 +438,7 @@ fn a_queued_prompt_shows_survives_esc_and_comes_back_on_up() {
     hn.press(KeyCode::Enter);
     let screen = hn.render().plain();
     assert!(screen.contains("❯ queued one"), "{screen}");
-    assert!(screen.contains("ctrl+x ctrl+s to send now"), "{screen}");
+    assert!(screen.contains("ctrl+enter to send now"), "{screen}");
     assert!(
         screen.contains("Press up to edit queued messages"),
         "{screen}"
@@ -497,4 +548,64 @@ fn an_edit_snippet_is_placed_in_its_file() {
     );
     assert_eq!(placed.new, "fn main() {\n    println!(\"hi\");\n}\n");
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn rewind_asks_to_confirm_and_esc_goes_back_to_the_list() {
+    let mut hn = harness();
+    for p in ["first prompt", "second prompt"] {
+        hn.app.submit(p.to_string());
+        hn.event(Event::TurnStart);
+        hn.event(Event::TurnEnd(StopReason::EndTurn));
+    }
+    hn.app.dialog = Some(Dialog::Rewind { sel: 1 });
+    hn.press(KeyCode::Enter);
+    let screen = hn.render().plain();
+    assert!(
+        screen.contains("Confirm you want to restore to the point before you sent this message:"),
+        "{screen}"
+    );
+    assert!(screen.contains("│ second prompt"), "{screen}");
+    assert!(screen.contains("❯ 1. Restore conversation"), "{screen}");
+    assert!(screen.contains("2. Never mind"), "{screen}");
+    hn.press(KeyCode::Esc);
+    assert!(matches!(hn.app.dialog, Some(Dialog::Rewind { sel: 1 })));
+}
+
+#[test]
+fn a_local_command_takes_the_placeholder_away() {
+    let mut hn = harness();
+    assert!(
+        hn.render().plain().contains("Try "),
+        "a fresh prompt has a placeholder"
+    );
+    hn.type_str("/status");
+    hn.press(KeyCode::Enter);
+    hn.press(KeyCode::Esc);
+    assert!(!hn.render().plain().contains("Try "));
+}
+
+#[test]
+fn a_queued_prompt_joins_history_when_it_is_sent() {
+    let mut hn = harness();
+    hn.type_str("first");
+    hn.press(KeyCode::Enter);
+    hn.event(Event::TurnStart);
+    hn.type_str("queued then taken back");
+    hn.press(KeyCode::Enter);
+    assert!(!hn.app.prompts.iter().any(|p| p == "queued then taken back"));
+    hn.press(KeyCode::Up);
+    hn.app.editor.set_text("");
+    assert!(!hn.app.prompts.iter().any(|p| p == "queued then taken back"));
+}
+
+#[test]
+fn typing_during_a_turn_drops_the_interrupt_hint() {
+    let mut hn = harness();
+    hn.type_str("go");
+    hn.press(KeyCode::Enter);
+    hn.event(Event::TurnStart);
+    assert!(hn.render().plain().contains("esc to interrupt"));
+    hn.type_str("next");
+    assert!(!hn.render().plain().contains("esc to interrupt"));
 }
