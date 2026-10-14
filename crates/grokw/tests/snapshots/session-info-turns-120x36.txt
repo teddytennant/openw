@@ -16,10 +16,10 @@
      • Found println!│  /tmp/grok-harvest-000000/proj                                             │                    █
                      │                                                                            │                    █
      ┌──────┬────────│  Model: Grok 4.7                                                           │                    █
-     │ Step │ Result │  API Backend: mock 0.0                                                     │                    █
-     ├──────┼────────│  Turn: 1                                                                   │                    █
-     │ Edit │ hello w│  Context: 28064 / 256000 tokens (11%)                                      │                    █
-     └──────┴────────│                                                                            │                    █
+     │ Step │ Result │  Mode: genie                                                               │                    █
+     ├──────┼────────│  API Backend: mock 0.0                                                     │                    █
+     │ Edit │ hello w│  Turn: 1                                                                   │                    █
+     └──────┴────────│  Context: 28064 / 256000 tokens (11%)                                      │                    █
                      │                                                                            │                    █
      fn main() {     │                                                                            │                    █
          println!("hi│                                                                            │                    █

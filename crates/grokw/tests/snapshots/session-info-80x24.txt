@@ -15,7 +15,7 @@
               │  /tmp/grok-harvest-000000/proj                   │
               │                                                  │
               │  Model: Grok 4.7                                 │
-              │  API Backend: mock 0.0                           │
+              │  Mode: genie                                     │
   ╭───────────│                                                  │───────────╮
   │ ❯         │            Tab switch  |  ↑/↓ scroll             │           │
   ╰───────────│  c copy session ID  |  y copy all  |  Esc close  │.7 (high) ─╯

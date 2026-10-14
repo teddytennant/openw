@@ -16,10 +16,10 @@
                      │  /tmp/grok-harvest-000000/proj                                             │
                      │                                                                            │
                      │  Model: Grok 4.7                                                           │
+                     │  Mode: genie                                                               │
                      │  API Backend: mock 0.0                                                     │
                      │  Turn: 0                                                                   │
                      │  Context: 1475 / 256000 tokens (1%)                                        │
-                     │                                                                            │
                      │                                                                            │
                      │                                                                            │
                      │                                                                            │

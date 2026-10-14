@@ -260,11 +260,12 @@ fn info_fields(app: &App) -> (Fields, Fields) {
     long.push(("Session ID:", app.tr.session_id.clone()));
     long.push(("Working directory:", cwd_full(app)));
     let (turns, _) = turns_and_calls(app);
-    let mut short = vec![
-        ("Model:", model_name(app)),
-        ("API Backend:", app.config.backend.clone()),
-        ("Turn:", turns.to_string()),
-    ];
+    let mut short = vec![("Model:", model_name(app))];
+    if !app.config.mode.is_empty() {
+        short.push(("Mode:", app.config.mode.clone()));
+    }
+    short.push(("API Backend:", app.config.backend.clone()));
+    short.push(("Turn:", turns.to_string()));
     if let Some((used, total)) = app.context() {
         let pct = (used as f64 / total.max(1) as f64 * 100.0).round() as u64;
         short.push(("Context:", format!("{used} / {total} tokens ({pct}%)")));
