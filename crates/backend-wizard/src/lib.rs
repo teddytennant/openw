@@ -153,6 +153,13 @@ impl Ring {
     }
 }
 
+/// The session `/ui` hands over when wizard starts this look from another one: `WIZARD_HANDOFF`
+/// is JSON, and its `session` is what to resume. wizard reads the model and mode from it itself.
+fn handoff_session(value: Option<&str>) -> Option<String> {
+    let handoff: serde_json::Value = serde_json::from_str(value?).ok()?;
+    handoff["session"].as_str().map(str::to_string)
+}
+
 fn wizard_bin() -> OsString {
     match std::env::var_os("OPENW_WIZARD_BIN") {
         Some(v) if !v.is_empty() => v,
@@ -416,6 +423,8 @@ impl WizardBackend {
         ask: bool,
     ) -> anyhow::Result<BackendHandle> {
         let cwd = std::path::absolute(&cwd).unwrap_or(cwd);
+        let resume =
+            resume.or_else(|| handoff_session(std::env::var("WIZARD_HANDOFF").ok().as_deref()));
         let bin = wizard_bin();
         let proc = launch(&bin, &cwd)?;
         let (req_tx, req_rx) = unbounded_channel();
@@ -704,6 +713,15 @@ mod tests {
         assert!(tool_groups(&rows, 100, &[]).is_empty());
         // the MCP server shares wizard's group and is never a candidate
         assert!(tool_groups(&rows, 100, &cmds(&["npm exec"])).is_empty());
+    }
+
+    #[test]
+    fn a_handoff_names_the_session_to_resume() {
+        let json = r#"{"session":"2026-10-14T20-45-38","provider":"beta","model":"m","mode":"genie"}"#;
+        assert_eq!(handoff_session(Some(json)).as_deref(), Some("2026-10-14T20-45-38"));
+        assert_eq!(handoff_session(Some(r#"{"session":null,"provider":"beta"}"#)), None);
+        assert_eq!(handoff_session(Some("not json")), None);
+        assert_eq!(handoff_session(None), None);
     }
 
     #[test]
