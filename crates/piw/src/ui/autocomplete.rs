@@ -118,15 +118,17 @@ fn fuzzy_rank<T>(items: Vec<T>, q: &str, key: impl Fn(&T) -> String) -> Vec<T> {
         return items;
     }
     let ql = q.to_lowercase();
-    let mut scored: Vec<(i32, usize, T)> = items
+    // An exact name comes first: `/mode` must not run `/model`, which scores the same.
+    let mut scored: Vec<(bool, i32, usize, T)> = items
         .into_iter()
         .enumerate()
         .filter_map(|(i, it)| {
-            tuikit::fuzzy::score(&ql, &key(&it).to_lowercase()).map(|m| (m.score, i, it))
+            let k = key(&it).to_lowercase();
+            tuikit::fuzzy::score(&ql, &k).map(|m| (k == ql, m.score, i, it))
         })
         .collect();
-    scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
-    scored.into_iter().map(|(_, _, it)| it).collect()
+    scored.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)).then(a.2.cmp(&b.2)));
+    scored.into_iter().map(|(_, _, _, it)| it).collect()
 }
 
 impl Autocomplete {
@@ -818,6 +820,20 @@ mod tests {
         assert_eq!(a.selected().unwrap().text, "/model ");
         a.update("hello", 5, &ctx(&c, &[], &[]));
         assert!(!a.is_open());
+    }
+
+    #[test]
+    fn an_exact_name_outranks_a_longer_one() {
+        let mut c = cmds();
+        c.push(SlashItem {
+            name: "mode".into(),
+            hint: String::new(),
+            description: "pick a mode".into(),
+            builtin: false,
+        });
+        let mut a = Autocomplete::new();
+        a.update("/mode", 5, &ctx(&c, &[], &[]));
+        assert_eq!(a.selected().unwrap().text, "/mode ");
     }
 
     #[test]
