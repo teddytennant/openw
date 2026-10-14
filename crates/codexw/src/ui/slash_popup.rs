@@ -12,6 +12,8 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use unicode_segmentation::UnicodeSegmentation;
 
+use std::borrow::Cow;
+
 use crate::commands::{COMMANDS, HIDDEN};
 use crate::style::palette;
 use crate::wrap::{WrapOpts, width_of, word_wrap_line};
@@ -286,12 +288,21 @@ pub fn render_rows(
 
 // ---- the command list -----------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SlashItem {
-    pub name: &'static str,
-    pub description: &'static str,
+    pub name: Cow<'static, str>,
+    pub description: Cow<'static, str>,
     /// Typed names only: `/quit` for `/exit`, `/btw` for `/side`.
     pub alias: bool,
+}
+
+/// A command wizard advertised that codexw has no entry of its own for, listed after Codex's.
+pub fn wizard_item(name: &str, description: &str) -> SlashItem {
+    SlashItem {
+        name: Cow::Owned(name.to_string()),
+        description: Cow::Owned(description.to_string()),
+        alias: false,
+    }
 }
 
 /// Popup order (spec C.6.1) with the typed-only aliases next to the command they stand for.
@@ -301,22 +312,22 @@ pub fn all_items() -> Vec<SlashItem> {
         if c.name == "exit" {
             if let Some((n, d)) = HIDDEN.iter().find(|(n, _)| *n == "quit") {
                 out.push(SlashItem {
-                    name: n,
-                    description: d,
+                    name: Cow::Borrowed(n),
+                    description: Cow::Borrowed(d),
                     alias: true,
                 });
             }
         }
         out.push(SlashItem {
-            name: c.name,
-            description: c.description,
+            name: Cow::Borrowed(c.name),
+            description: Cow::Borrowed(c.description),
             alias: false,
         });
         if c.name == "side" {
             if let Some((n, d)) = HIDDEN.iter().find(|(n, _)| *n == "btw") {
                 out.push(SlashItem {
-                    name: n,
-                    description: d,
+                    name: Cow::Borrowed(n),
+                    description: Cow::Borrowed(d),
                     alias: true,
                 });
             }
@@ -325,10 +336,11 @@ pub fn all_items() -> Vec<SlashItem> {
     out
 }
 
-/// Commands matching `query` (the text after the slash): all of them in presentation order
-/// when empty, otherwise exact matches then prefix matches, case-insensitive.
-pub fn matching_items(query: &str) -> Vec<(SlashItem, usize)> {
-    let items = all_items();
+/// Commands matching `query` (the text after the slash), Codex's then `extra`: all of them in
+/// presentation order when empty, otherwise exact matches then prefix matches, case-insensitive.
+pub fn matching_items(query: &str, extra: &[SlashItem]) -> Vec<(SlashItem, usize)> {
+    let mut items = all_items();
+    items.extend(extra.iter().cloned());
     let q = query.trim().to_lowercase();
     if q.is_empty() {
         return items
@@ -353,17 +365,20 @@ pub fn matching_items(query: &str) -> Vec<(SlashItem, usize)> {
 }
 
 /// Names in Codex's popup order filtered by `query` (text after the slash).
-pub fn visible_commands(query: &str) -> Vec<&'static str> {
-    matching_items(query)
+pub fn visible_commands(query: &str) -> Vec<String> {
+    matching_items(query, &[])
         .into_iter()
-        .map(|(i, _)| i.name)
+        .map(|(i, _)| i.name.into_owned())
         .collect()
 }
 
-/// True when some command, alias included, starts with `name`.
-pub fn has_command_prefix(name: &str) -> bool {
+/// True when some command, alias or `extra` entry included, starts with `name`.
+pub fn has_command_prefix(name: &str, extra: &[SlashItem]) -> bool {
     let n = name.to_lowercase();
-    all_items().iter().any(|i| i.name.starts_with(&n))
+    all_items()
+        .iter()
+        .chain(extra)
+        .any(|i| i.name.starts_with(&n))
 }
 
 // ---- the popup ------------------------------------------------------------------------------
@@ -372,13 +387,20 @@ pub fn has_command_prefix(name: &str) -> bool {
 pub struct SlashPopup {
     filter: String,
     state: ScrollState,
+    /// wizard's commands, after Codex's.
+    extra: Vec<SlashItem>,
 }
 
 impl SlashPopup {
     pub fn new(filter: &str) -> Self {
+        Self::with_extra(filter, Vec::new())
+    }
+
+    pub fn with_extra(filter: &str, extra: Vec<SlashItem>) -> Self {
         let mut p = SlashPopup {
             filter: String::new(),
             state: ScrollState::default(),
+            extra,
         };
         p.set_filter(filter);
         p
@@ -396,7 +418,7 @@ impl SlashPopup {
     }
 
     fn matches(&self) -> Vec<(SlashItem, usize)> {
-        matching_items(&self.filter)
+        matching_items(&self.filter, &self.extra)
     }
 
     fn rows(&self) -> Vec<PopupRow> {
@@ -426,7 +448,7 @@ impl SlashPopup {
         let m = self.matches();
         self.state
             .selected_idx
-            .and_then(|i| m.get(i).map(|(it, _)| *it))
+            .and_then(|i| m.get(i).map(|(it, _)| it.clone()))
     }
 
     pub fn is_empty(&self) -> bool {
@@ -485,9 +507,9 @@ mod tests {
     fn empty_filter_lists_popup_order_without_aliases() {
         let names = visible_commands("");
         assert_eq!(names[0], "model");
-        assert!(!names.contains(&"quit"));
-        assert!(!names.contains(&"btw"));
-        assert!(names.contains(&"exit"));
+        assert!(!names.iter().any(|n| n == "quit"));
+        assert!(!names.iter().any(|n| n == "btw"));
+        assert!(names.iter().any(|n| n == "exit"));
         let pos = |n: &str| names.iter().position(|x| *x == n).unwrap();
         assert!(pos("status") < pos("title"));
     }
@@ -512,7 +534,7 @@ mod tests {
         assert_eq!(visible_commands("MO"), vec!["model"]);
         assert!(visible_commands("nonsense").is_empty());
         // Substring and fuzzy matches are not used.
-        assert!(!visible_commands("ac").contains(&"compact"));
+        assert!(!visible_commands("ac").iter().any(|n| n == "compact"));
         // An exact match jumps ahead of longer prefix matches.
         assert_eq!(visible_commands("pet")[0], "pets");
         assert_eq!(visible_commands("status")[0], "status");

@@ -25,7 +25,7 @@ use super::key_hint::{ctrl, plain, shift};
 use super::mention_popup::{FileIndex, MentionPopup, Picked};
 use super::paste_burst::{CharDecision, FlushResult, PasteBurst};
 use super::skill_popup::SkillPopup;
-use super::slash_popup::{SlashPopup, has_command_prefix};
+use super::slash_popup::{SlashItem, SlashPopup, has_command_prefix, wizard_item};
 use super::textarea::{TextArea, TextAreaState};
 use crate::commands;
 use crate::skills::Skill;
@@ -199,8 +199,9 @@ pub struct Composer {
     burst_enabled: bool,
     cwd: PathBuf,
     file_index: Option<Arc<FileIndex>>,
-    /// Commands wizard advertised: typed, they go to wizard rather than being unrecognized.
-    pub backend_commands: Vec<String>,
+    /// Commands wizard advertised, `(name, description)`: typed, they go to wizard rather than
+    /// being unrecognized, and the popup lists the ones codexw has no entry for.
+    pub backend_commands: Vec<(String, String)>,
 }
 
 impl std::fmt::Debug for Composer {
@@ -1323,7 +1324,16 @@ impl Composer {
 
     /// A command name codexw has, or one wizard advertised.
     fn knows(&self, name: &str) -> bool {
-        commands::lookup(name).is_some() || self.backend_commands.iter().any(|c| c == name)
+        commands::lookup(name).is_some() || self.backend_commands.iter().any(|(c, _)| c == name)
+    }
+
+    /// wizard's commands codexw has no entry of its own for.
+    fn wizard_items(&self) -> Vec<SlashItem> {
+        self.backend_commands
+            .iter()
+            .filter(|(name, _)| commands::lookup(name).is_none())
+            .map(|(name, desc)| wizard_item(name, desc))
+            .collect()
     }
 
     /// The draft names, exactly, a wizard command codexw has no entry for (`/mode`), so Enter
@@ -1332,7 +1342,7 @@ impl Composer {
         let text = self.editor.text();
         let first = text.lines().next().unwrap_or("");
         parse_slash_name(first).is_some_and(|(name, _, _)| {
-            commands::lookup(name).is_none() && self.backend_commands.iter().any(|c| c == name)
+            commands::lookup(name).is_none() && self.backend_commands.iter().any(|(c, _)| c == name)
         })
     }
 
@@ -1427,7 +1437,7 @@ impl Composer {
         if plain(KeyCode::Enter).is_press(key) {
             match popup.selected() {
                 Some(sel) if !self.typed_backend_only() => {
-                    return self.command_popup_enter(sel.name);
+                    return self.command_popup_enter(&sel.name);
                 }
                 _ => return self.handle_key_without_popup(key),
             }
@@ -1460,7 +1470,7 @@ impl Composer {
                 self.set_text("");
                 return ComposerEvent::Command("/skills".into());
             }
-            if self.complete_keeping_draft_tail_as_args(sel.name) {
+            if self.complete_keeping_draft_tail_as_args(&sel.name) {
                 return ComposerEvent::None;
             }
             let completed = format!("/{}", sel.name);
@@ -1487,7 +1497,7 @@ impl Composer {
             return;
         };
         if let Some(sel) = popup.selected() {
-            if self.complete_keeping_draft_tail_as_args(sel.name) {
+            if self.complete_keeping_draft_tail_as_args(&sel.name) {
                 return;
             }
             let completed = format!("/{}", sel.name);
@@ -1539,7 +1549,7 @@ impl Composer {
         true
     }
 
-    fn command_popup_enter(&mut self, name: &'static str) -> ComposerEvent {
+    fn command_popup_enter(&mut self, name: &str) -> ComposerEvent {
         // Typed text after the name becomes arguments for commands that take them.
         if self.complete_keeping_draft_tail_as_args(name) {
             let text = self.editor.text().to_string();
@@ -1856,7 +1866,7 @@ impl Composer {
                     if name.is_empty() {
                         rest.is_empty()
                     } else {
-                        has_command_prefix(name)
+                        has_command_prefix(name, &self.wizard_items())
                     }
                 }
                 None => false,
@@ -1877,7 +1887,10 @@ impl Composer {
             _ => {
                 if editing_name {
                     if let Some(f) = filter {
-                        self.popup = Popup::Command(SlashPopup::new(f.trim_start_matches('/')));
+                        self.popup = Popup::Command(SlashPopup::with_extra(
+                            f.trim_start_matches('/'),
+                            self.wizard_items(),
+                        ));
                     }
                 }
             }
@@ -2331,7 +2344,10 @@ mod tests {
     #[test]
     fn a_wizard_command_is_run_as_typed_and_an_unknown_one_is_refused() {
         let mut c = comp();
-        c.backend_commands = vec!["mode".into(), "help".into()];
+        c.backend_commands = vec![
+            ("mode".into(), "pick or switch personality mode".into()),
+            ("help".into(), "show available commands".into()),
+        ];
         type_str(&mut c, "/mode");
         assert_eq!(
             c.handle_key(k(KeyCode::Enter), false),
@@ -2347,6 +2363,31 @@ mod tests {
             c.handle_key(k(KeyCode::Enter), false),
             ComposerEvent::Info(t) if t.starts_with("Unrecognized command '/frobnicate'")
         ));
+    }
+
+    #[test]
+    fn the_popup_lists_wizard_commands_after_codexs() {
+        let mut c = comp();
+        c.backend_commands = vec![
+            ("mode".into(), "pick or switch personality mode".into()),
+            ("model".into(), "pick or switch the model".into()),
+        ];
+        type_str(&mut c, "/mo");
+        let rows = draw(&mut c, 120, &ctx());
+        let model = rows
+            .iter()
+            .position(|r| r.contains("/model "))
+            .expect("/model");
+        let mode = rows
+            .iter()
+            .position(|r| r.contains("/mode "))
+            .expect("/mode");
+        assert!(model < mode, "{rows:?}");
+        assert!(
+            rows[mode].contains("pick or switch personality mode"),
+            "{rows:?}"
+        );
+        assert_eq!(rows.iter().filter(|r| r.contains("/model ")).count(), 1);
     }
 
     #[test]

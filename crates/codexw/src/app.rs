@@ -376,7 +376,10 @@ impl<W: Write> App<W> {
                 self.on_ready();
             }
             Event::Commands(c) => {
-                self.pane.composer.backend_commands = c.iter().map(|c| c.name.clone()).collect();
+                self.pane.composer.backend_commands = c
+                    .iter()
+                    .map(|c| (c.name.clone(), c.description.clone()))
+                    .collect();
                 self.commands = c.clone();
             }
             Event::ConfigChanged(c) => {
