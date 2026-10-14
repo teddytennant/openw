@@ -232,6 +232,19 @@ pub fn switched_look(text: &str) -> Option<&str> {
     (!name.is_empty()).then_some(name)
 }
 
+/// Whether wizard is in plan mode after a `/plan` or `/omakase` notice, if `text` is one. Leaving
+/// omakase goes back to plan mode, not out of it.
+pub fn plan_mode(text: &str) -> Option<bool> {
+    let text = text.trim_start();
+    if text.starts_with("plan mode on") || text.starts_with("omakase") {
+        Some(true)
+    } else if text.starts_with("plan mode off") {
+        Some(false)
+    } else {
+        None
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum Event {
     /// Backend is up; `session_id` is the active session.
@@ -421,5 +434,20 @@ mod switched_look_tests {
     fn other_notices_are_not_a_switch() {
         assert_eq!(switched_look("ui: codex (current)"), None);
         assert_eq!(switched_look("saved [ui] skin = \"\"."), None);
+    }
+}
+
+#[cfg(test)]
+mod plan_mode_tests {
+    use super::plan_mode;
+
+    #[test]
+    fn reads_wizards_plan_and_omakase_notices() {
+        let on = "plan mode on — the agent investigates read-only and presents a plan for approval";
+        assert_eq!(plan_mode(on), Some(true));
+        assert_eq!(plan_mode("plan mode off"), Some(false));
+        assert_eq!(plan_mode("omakase on — chef's choice"), Some(true));
+        assert_eq!(plan_mode("omakase off — back to plan mode"), Some(true));
+        assert_eq!(plan_mode("switched to genie mode"), None);
     }
 }

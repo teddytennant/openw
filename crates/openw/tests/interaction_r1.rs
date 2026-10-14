@@ -270,6 +270,21 @@ fn theme_with_a_name_switches_and_is_saved_and_share_says_it_is_not_there() {
 }
 
 #[test]
+fn a_typed_plan_moves_the_agent_badge() {
+    let mut h = Harness::new(120, 36);
+    h.event(Event::Notice {
+        level: agent_core::NoticeLevel::Info,
+        text: "plan mode on — the agent investigates read-only".into(),
+    });
+    assert_eq!(h.app.agent, openw::app::AgentKind::Plan);
+    h.event(Event::Notice {
+        level: agent_core::NoticeLevel::Info,
+        text: "plan mode off".into(),
+    });
+    assert_eq!(h.app.agent, openw::app::AgentKind::Build);
+}
+
+#[test]
 fn f7_a_recent_model_wizard_no_longer_offers_is_ignored() {
     let dir = std::env::temp_dir().join(format!("openw-r1-model2-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

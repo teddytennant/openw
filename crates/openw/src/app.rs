@@ -998,6 +998,13 @@ impl App {
                             m.compaction = false;
                         }
                     }
+                    if let Some(plan) = agent_core::plan_mode(text) {
+                        self.agent = if plan {
+                            AgentKind::Plan
+                        } else {
+                            AgentKind::Build
+                        };
+                    }
                     if self.silent_notices > 0 {
                         self.silent_notices -= 1;
                         self.toast(Variant::Info, text.clone());
