@@ -499,7 +499,11 @@ pub fn call_label(app: &App, t: &ToolCall, absolute: bool) -> (String, String) {
         ),
         ToolKind::Read => ("Read".into(), path(file.unwrap_or(&t.title))),
         ToolKind::Edit => {
-            let new_file = t.diff.as_ref().is_some_and(|d| d.old.is_none());
+            // a failed call has lost its diff; the tool's name still says which it was
+            let new_file = match &t.diff {
+                Some(d) => d.old.is_none(),
+                None => t.name == "write_file",
+            };
             (
                 if new_file { "Write" } else { "Update" }.into(),
                 path(file.unwrap_or(&t.title)),
@@ -611,10 +615,19 @@ fn tool(app: &App, t: &ToolCall, w: usize, detail: bool) -> Vec<Row> {
         };
         // a resumed result already carries the prefix wizard gave it
         let text = text.strip_prefix("Error: ").unwrap_or(text);
-        // a failed edit or write says only that, as the reference does; ctrl+o has the detail
+        // a failed edit or write says only that, as the reference does; ctrl+o has the detail.
+        // A call wizard refused never reached the file, so the reason is what is shown
+        let refused = [
+            "is not available in this turn",
+            "blocked by plan mode",
+            "blocked by pre_tool_use hook",
+        ]
+        .iter()
+        .any(|r| text.contains(r));
         let short = match name.as_str() {
-            "Update" if !detail && text != "Interrupted" => Some("Error editing file"),
-            "Write" if !detail && text != "Interrupted" => Some("Error writing file"),
+            _ if detail || refused || text == "Interrupted" => None,
+            "Update" => Some("Error editing file"),
+            "Write" => Some("Error writing file"),
             _ => None,
         };
         if let Some(short) = short {
