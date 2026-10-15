@@ -836,3 +836,73 @@ fn plan_with_text_sends_the_text_in_plan_mode() {
     plan_answer(&mut hn, "plan mode on");
     assert_eq!(hn.sent(), [Request::Prompt("refine the approach".into())]);
 }
+
+fn wizard_command(hn: &mut Harness, name: &str) {
+    hn.app.commands.push(agent_core::SlashCommand {
+        name: name.into(),
+        description: String::new(),
+        input_hint: String::new(),
+    });
+}
+
+/// A typed `/omakase` is a turn of its own, and its answer is the only sign of the state it
+/// put wizard in: it is shown. Only the plan-off line after an approved plan is left out.
+#[test]
+fn omakase_answers_are_shown_and_the_plan_off_line_is_not() {
+    let mut hn = harness();
+    wizard_command(&mut hn, "omakase");
+    hn.app.submit("/omakase".into());
+    assert_eq!(hn.sent(), [Request::Prompt("/omakase".into())]);
+    plan_answer(&mut hn, "omakase on — chef's choice");
+    assert!(
+        hn.render().plain().contains("omakase on"),
+        "the answer is shown"
+    );
+    assert!(hn.app.plan && hn.app.omakase);
+    hn.app.submit("please plan".into());
+    hn.event(Event::TurnStart);
+    hn.event(Event::Notice {
+        level: NoticeLevel::Info,
+        text: "plan mode off".into(),
+    });
+    assert!(!hn.render().plain().contains("plan mode off"));
+    assert!(!hn.app.plan && !hn.app.omakase);
+}
+
+/// A new session gets omakase back, not plain plan mode, so its plan is not put to a review.
+#[test]
+fn omakase_is_carried_into_a_new_session() {
+    let mut hn = harness();
+    wizard_command(&mut hn, "omakase");
+    hn.app.submit("/omakase".into());
+    hn.sent();
+    plan_answer(&mut hn, "omakase on — chef's choice");
+    let defaults = hn.app.cfg.clone();
+    hn.app.submit("/clear".into());
+    assert_eq!(hn.sent(), [Request::NewSession]);
+    hn.event(Event::Ready {
+        session_id: "new".into(),
+        config: defaults,
+    });
+    assert_eq!(hn.sent(), [Request::Prompt("/omakase".into())]);
+    plan_answer(&mut hn, "omakase on — chef's choice");
+    assert!(hn.app.plan && hn.app.omakase);
+}
+
+/// A `/name` neither the look nor wizard runs is answered here, not sent to the model; a path
+/// is still a prompt.
+#[test]
+fn an_unknown_slash_command_is_answered_locally() {
+    let mut hn = harness();
+    hn.app.submit("/zzzfoo".into());
+    assert!(hn.sent().is_empty());
+    assert!(hn
+        .render()
+        .plain()
+        .contains("Unknown slash command: zzzfoo"));
+    hn.app.submit("/etc/hosts what is in it".into());
+    assert_eq!(
+        hn.sent(),
+        [Request::Prompt("/etc/hosts what is in it".into())]
+    );
+}

@@ -63,6 +63,16 @@ pub const LOCAL_COMMANDS: &[(&str, &str)] = &[
         "Show Wizard status including version, model and session",
     ),
 ];
+/// Whether the look `/ui` left was in plan mode: wizard hands its state to the next look in
+/// `WIZARD_HANDOFF`.
+fn handed_plan() -> bool {
+    std::env::var("WIZARD_HANDOFF")
+        .ok()
+        .and_then(|h| serde_json::from_str::<serde_json::Value>(&h).ok())
+        .and_then(|h| h.get("plan").and_then(serde_json::Value::as_bool))
+        .unwrap_or(false)
+}
+
 /// How long a footer hint stays up, and how quickly a second press must follow to count.
 /// What to do when wizard cannot start a session or has gone away.
 pub const SETUP_HINT: &str =
@@ -250,6 +260,8 @@ pub enum ModeStep {
     Mode(String),
     Model(String),
     Effort(String),
+    /// `/omakase`, sent silently like the plan toggle; it turns plan mode on with it.
+    Omakase,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -290,6 +302,9 @@ pub struct App {
     pub busy: Option<Busy>,
     pub queued: Vec<String>,
     pub plan: bool,
+    /// Omakase on: plan mode whose plan is approved without asking. Put back on a new session
+    /// like plan mode.
+    pub omakase: bool,
     pub menu: Menu,
     pub shortcuts: bool,
     pub dialog: Option<Dialog>,
@@ -383,7 +398,8 @@ impl App {
         } else {
             Theme::dark()
         };
-        let plan = opts.plan;
+        // plan mode also comes over from the look `/ui` left, through wizard's handoff
+        let plan = opts.plan || handed_plan();
         let pending_prompts = opts.prompts.clone();
         let mut app = App {
             opts,
@@ -421,6 +437,7 @@ impl App {
             busy: None,
             queued: Vec::new(),
             plan,
+            omakase: false,
             menu: Menu::None,
             shortcuts: false,
             dialog: None,
@@ -754,6 +771,7 @@ impl App {
                 } else {
                     self.shown_mode()
                 };
+                let omakase = !first && std::mem::take(&mut self.omakase);
                 let (model, effort) = if first {
                     (self.opts.model.clone(), self.opts.effort.clone())
                 } else {
@@ -783,7 +801,16 @@ impl App {
                 if let Some(e) = effort.filter(|e| !e.is_empty() && *e != self.cfg.effort) {
                     self.mode_steps.push_back(ModeStep::Effort(e));
                 }
-                self.go_to((mode, plan));
+                if omakase {
+                    // `/omakase` turns plan mode on itself
+                    self.go_to((mode, false));
+                    self.mode_steps.push_back(ModeStep::Omakase);
+                    let base = self.shown_mode().0;
+                    self.mode_target = Some((base, true));
+                    self.pump_modes();
+                } else {
+                    self.go_to((mode, plan));
+                }
                 // shift+tab pressed before the session existed
                 for _ in 0..std::mem::take(&mut self.early_presses) {
                     self.cycle_mode();
@@ -919,7 +946,7 @@ impl App {
             }
             Event::TurnEnd(_) if self.silent > 0 && self.busy.is_none() => {
                 self.silent -= 1;
-                if self.mode_waiting == Some(ModeStep::Plan) {
+                if matches!(self.mode_waiting, Some(ModeStep::Plan | ModeStep::Omakase)) {
                     self.mode_waiting = None;
                 }
                 self.pump_modes();
@@ -1016,8 +1043,15 @@ impl App {
                 // /plan and /omakase answers say where plan mode is; leaving omakase stays in it
                 if let Some(on) = agent_core::plan_mode(&text) {
                     self.plan = on;
-                    // wizard saying an approved plan left plan mode: the approval already shows
-                    if self.busy.is_some() && self.silent == 0 {
+                    let t = text.trim();
+                    if t.starts_with("omakase on") {
+                        self.omakase = true;
+                    } else if t.starts_with("omakase off") || !on {
+                        self.omakase = false;
+                    }
+                    // the line wizard sends when an approved plan leaves plan mode mid-turn: the
+                    // approval already shows. A typed command's answer is always shown
+                    if t == "plan mode off" && self.busy.is_some() && !self.slash_turn() {
                         return;
                     }
                 }
@@ -1218,13 +1252,18 @@ impl App {
             });
             return;
         }
+        if self.unknown_command(&name) {
+            self.blocks.push(Block::User { text, bash: false });
+            self.output(format!("Unknown slash command: {name}"), String::new());
+            return;
+        }
         // a turn running, or a mode change not yet confirmed: the prompt waits for it, so it
         // never runs in a mode on the way to the one pressed
         // panels the look opens itself (help, status, the pickers) need no wizard mode
         let local = matches!(
             name.as_str(),
             "help" | "status" | "resume" | "continue" | "config" | "settings"
-        ) || (matches!(name.as_str(), "model" | "mode") && arg.is_empty());
+        ) || (matches!(name.as_str(), "model" | "mode" | "rewind") && arg.is_empty());
         if self.busy.is_some() || (self.modes_pending() && !local) {
             self.queued.push(text);
             return;
@@ -1284,6 +1323,36 @@ impl App {
                     self.go_to((mode, true));
                 }
                 self.submit(arg);
+                return;
+            }
+            // the same picker as Esc Esc
+            "rewind" if arg.is_empty() => {
+                if self.rewind_targets().is_empty() {
+                    self.blocks.push(Block::User { text, bash: false });
+                    self.output("Nothing to rewind to yet", String::new());
+                } else {
+                    self.dialog = Some(Dialog::Rewind { sel: usize::MAX });
+                }
+                return;
+            }
+            // a model or effort typed out goes the picker's way, with the picker's answer
+            "model" if self.model_index(&arg).is_some() => {
+                if let Some(i) = self.model_index(&arg) {
+                    self.pick_model(i);
+                }
+                return;
+            }
+            "effort" if self.cfg.efforts.contains(&arg) => {
+                self.blocks.push(Block::User { text, bash: false });
+                if arg != self.cfg.effort {
+                    self.send(Request::SetEffort(arg.clone()));
+                    self.cfg.effort = arg.clone();
+                }
+                self.show_effort_notice();
+                self.output(
+                    format!("Set effort level to {arg} for this session only"),
+                    String::new(),
+                );
                 return;
             }
             "config" | "settings" => {
@@ -1935,6 +2004,34 @@ impl App {
             .map_or_else(|| m.to_string(), |x| x.id.clone())
     }
 
+    /// The turn running was started by a typed slash command.
+    fn slash_turn(&self) -> bool {
+        self.blocks
+            .iter()
+            .rev()
+            .find_map(|b| match b {
+                Block::User { text, bash } => Some(!bash && text.starts_with('/')),
+                _ => None,
+            })
+            .unwrap_or(false)
+    }
+
+    /// A `/name` the look does not run and wizard does not list: Claude Code says so instead
+    /// of spending a turn on it. Paths like `/etc/hosts` are prompts.
+    fn unknown_command(&self, name: &str) -> bool {
+        const OWN: &[&str] = &[
+            "btw", "plan", "config", "settings", "mode", "model", "resume", "continue", "clear",
+            "new", "reset", "exit", "quit", "help", "status", "rewind", "effort",
+        ];
+        !name.is_empty()
+            && !self.commands.is_empty()
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ':'))
+            && !OWN.contains(&name)
+            && !self.commands.iter().any(|c| c.name == name)
+    }
+
     /// Waiting on a session option (mode, model or effort), not on a plan toggle.
     fn waiting_on_option(&self) -> bool {
         matches!(
@@ -1971,6 +2068,11 @@ impl App {
             Some(ModeStep::Mode(m)) => {
                 self.mode_waiting = Some(ModeStep::Mode(m.clone()));
                 self.send(Request::SetMode(m));
+            }
+            Some(ModeStep::Omakase) => {
+                self.mode_waiting = Some(ModeStep::Omakase);
+                self.silent += 1;
+                self.send(Request::Prompt("/omakase".into()));
             }
             Some(ModeStep::Model(m)) => {
                 self.mode_waiting = Some(ModeStep::Model(m.clone()));
@@ -2506,6 +2608,12 @@ impl App {
         let plan = plan && m != "chat";
         self.output(format!("Set mode to {m}"), String::new());
         self.go_to((m, plan));
+    }
+
+    /// Where `m`, an id or a name, is in the model list.
+    fn model_index(&self, m: &str) -> Option<usize> {
+        let id = self.model_id(m);
+        self.cfg.models.iter().position(|x| x.id == id)
     }
 
     fn pick_model(&mut self, i: usize) {

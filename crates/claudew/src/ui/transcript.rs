@@ -158,7 +158,8 @@ pub fn rows(app: &App, w: usize, detail: bool) -> Vec<Row> {
             row.extend(r);
             out.push(row);
         }
-        if n + 1 == app.queued.len() {
+        // only a turn can be cut short for them; a mode change or a side question cannot
+        if n + 1 == app.queued.len() && app.busy.is_some() {
             out.push(Row::of("  ctrl+enter to send now", th.dim()));
         }
     }
