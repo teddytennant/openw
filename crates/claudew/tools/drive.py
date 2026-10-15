@@ -202,6 +202,16 @@ LIVE_CARRY_RESUME = [
     ('live-config', [('type', '/config'), ('keys', 'Enter'), ('wait', 1.5), ('snap', '')]),
     ('live-mode', [('type', '/mode'), ('keys', 'Enter'), ('wait', 1.0), ('snap', ''),
                    ('keys', 'Escape'), ('wait', 0.5)]),
+    # typed forms of what the pickers do, and a command nobody runs
+    ('live-unknown', [('type', '/zzzfoo'), ('keys', 'Enter'), ('wait', 1.0), ('snap', '')]),
+    ('live-rewind-typed', [('type', '/rewind'), ('keys', 'Enter'), ('wait', 1.0), ('snap', ''),
+                           ('keys', 'Escape'), ('wait', 0.5)]),
+    ('live-model-typed', [('type', '/model fake-model'), ('keys', 'Enter'), ('wait', 2.0), ('snap', '')]),
+    # /omakase says what it did; a new session keeps it, so its plan is not put to a review
+    ('live-omakase', [('type', '/omakase'), ('keys', 'Enter'), ('wait', 2.0), ('snap', ''),
+                      ('type', '/clear'), ('keys', 'Enter'), ('wait', 2.5),
+                      ('type', 'please plan'), ('keys', 'Enter'), ('wait', 4.0), ('snap', '-planned'),
+                      ('fast_keys', 'Escape'), ('wait', 1.0), ('idle',)]),
 ]
 
 # A side question in flight in plan mode, closed, Esc once more, and a prompt sent while it is

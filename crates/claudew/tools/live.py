@@ -398,6 +398,22 @@ def checks(out, size, version, log, cwd, history):
     check(fails, tag('live-mode'), 'Select mode' in t and re.search(r'1\.\s+genie', t),
           '/mode opens a picker of wizard\'s modes')
 
+    t = text(p('live-unknown'))
+    check(fails, tag('live-unknown'), 'Unknown slash command: zzzfoo' in t and request(log, '/zzzfoo') is None,
+          'an unknown command is answered here and spends no turn')
+    check(fails, tag('live-rewind-typed'), 'Restore the code and/or conversation' in text(p('live-rewind-typed')),
+          'a typed /rewind opens the picker')
+    t = text(p('live-model-typed'))
+    check(fails, tag('live-model-typed'), 'Set model to fake-model for this session only' in t
+          and 'switched to model' not in t, 'a typed /model answers as the picker does')
+    t = text(p('live-omakase')).split('❯ /omakase')[-1]
+    check(fails, tag('live-omakase'), re.search(r'⎿\s+omakase on', t), '/omakase prints its answer')
+    t = text(p('live-omakase-planned'))
+    check(fails, tag('live-omakase'), 'Ready to code?' not in t,
+          'after /clear omakase is still on: the plan is not put to a review')
+    check(fails, tag('live-btw'), 'ctrl+enter to send now' not in text(p('live-btw-held')),
+          'a prompt held behind a side question offers no send-now, which only cuts a turn short')
+
     check(fails, tag('live-early'), footer_mode(text(p('live-early'))) == 'chat',
           'two shift+tabs before the session opened end in chat')
     r = request(log, 'early write')
