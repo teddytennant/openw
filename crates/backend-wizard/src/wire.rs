@@ -90,6 +90,21 @@ pub fn parse_commands(update: &Value) -> Vec<SlashCommand> {
         .unwrap_or_default()
 }
 
+/// The user's own commands in an `available_commands_update`: wizard marks them in `_meta`,
+/// because a prompt naming one is expanded and goes to the model rather than being answered.
+pub fn custom_commands(update: &Value) -> Vec<String> {
+    update
+        .get("availableCommands")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter(|c| c.pointer("/_meta/custom").and_then(Value::as_bool) == Some(true))
+                .map(|c| str_of(c, "name").trim_start_matches('/').to_lowercase())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 pub fn parse_session(s: &Value) -> SessionInfo {
     SessionInfo {
         id: str_of(s, "sessionId").to_string(),

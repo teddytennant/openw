@@ -108,6 +108,8 @@ pub struct Core {
     session: Option<String>,
     options: Vec<Value>,
     commands: Vec<SlashCommand>,
+    /// The user's own commands among them: a prompt naming one is a model turn.
+    custom: Vec<String>,
     tools: HashMap<String, ToolCall>,
     turn: Option<Turn>,
     probe: Option<String>,
@@ -136,6 +138,7 @@ impl Core {
             session: None,
             options: Vec::new(),
             commands: Vec::new(),
+            custom: Vec::new(),
             tools: HashMap::new(),
             turn: None,
             probe: None,
@@ -418,16 +421,21 @@ impl Core {
         }
     }
 
+    /// The command a prompt runs, when wizard answers it rather than the model: any `/name`
+    /// but the user's own commands (expanded and sent to the model) and paths. Wizard answers
+    /// its unlisted commands and unknown names itself too.
     fn command_of(&self, text: &str) -> Option<String> {
-        let first = text
+        let word = text
             .trim_start()
             .strip_prefix('/')?
             .split_whitespace()
             .next()?;
-        self.commands
-            .iter()
-            .find(|c| c.name.eq_ignore_ascii_case(first))
-            .map(|c| c.name.to_lowercase())
+        let plain = word
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ':'));
+        let path = std::path::Path::new("/").join(word).exists();
+        let name = word.to_lowercase();
+        (plain && !path && !self.custom.contains(&name)).then_some(name)
     }
 
     fn start_prompt(&mut self, text: String) {
@@ -818,6 +826,7 @@ impl Core {
             }
             "available_commands_update" => {
                 self.commands = wire::parse_commands(update);
+                self.custom = wire::custom_commands(update);
                 let c = self.commands.clone();
                 self.emit(Event::Commands(c));
                 // a session opened at startup hears about the commands after it loads
