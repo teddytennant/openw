@@ -227,11 +227,8 @@ pub fn short_cwd(cwd: &str, w: usize) -> String {
 fn user(th: &Theme, text: &str, bash: bool, w: usize) -> Vec<Row> {
     let bg = Style::new().bg(if bash { th.bash_bg } else { th.user_bg });
     let body = bg.fg(th.user_fg);
-    let spans = if bash {
-        vec![(text.trim_end().to_string(), body)]
-    } else {
-        markdown::inline_with(th, text.trim_end(), body, None)
-    };
+    // what was typed, as typed: backticks and asterisks are not markdown here
+    let spans = vec![(text.trim_end().to_string(), body)];
     // the first row of what you sent runs one column further than the rest
     let lines = crate::text::wrap_first(&spans, w.saturating_sub(3), w.saturating_sub(4));
     let last = lines.len() - 1;
