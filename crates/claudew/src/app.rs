@@ -63,16 +63,6 @@ pub const LOCAL_COMMANDS: &[(&str, &str)] = &[
         "Show Wizard status including version, model and session",
     ),
 ];
-/// Whether the look `/ui` left was in plan mode: wizard hands its state to the next look in
-/// `WIZARD_HANDOFF`.
-fn handed_plan() -> bool {
-    std::env::var("WIZARD_HANDOFF")
-        .ok()
-        .and_then(|h| serde_json::from_str::<serde_json::Value>(&h).ok())
-        .and_then(|h| h.get("plan").and_then(serde_json::Value::as_bool))
-        .unwrap_or(false)
-}
-
 /// How long a footer hint stays up, and how quickly a second press must follow to count.
 /// What to do when wizard cannot start a session or has gone away.
 pub const SETUP_HINT: &str =
@@ -214,6 +204,10 @@ pub enum Dialog {
     Status,
     /// `/mode`: wizard's modes, the one in use ticked.
     Mode {
+        sel: usize,
+    },
+    /// `/effort`: the reasoning efforts the model takes.
+    Effort {
         sel: usize,
     },
     Resume {
@@ -379,6 +373,8 @@ pub struct App {
     /// A session load or a new session asked for and not yet open: prompts wait for it and
     /// for the choices carried into it.
     loading: bool,
+    /// The turn running was started by a command wizard answers itself.
+    command_turn: bool,
     /// The running turn is wizard answering /btw.
     btw_turn: bool,
     /// A typed /rewind went through: the transcript is rebuilt when its turn ends.
@@ -399,7 +395,8 @@ impl App {
             Theme::dark()
         };
         // plan mode also comes over from the look `/ui` left, through wizard's handoff
-        let plan = opts.plan || handed_plan();
+        let handed = agent_core::handed_plan();
+        let plan = opts.plan || handed.is_some();
         let pending_prompts = opts.prompts.clone();
         let mut app = App {
             opts,
@@ -437,7 +434,7 @@ impl App {
             busy: None,
             queued: Vec::new(),
             plan,
-            omakase: false,
+            omakase: handed == Some("/omakase"),
             menu: Menu::None,
             shortcuts: false,
             dialog: None,
@@ -485,6 +482,7 @@ impl App {
             no_session: false,
             early_presses: 0,
             loading: false,
+            command_turn: false,
             btw_turn: false,
             reload_after_turn: false,
             search_hint: false,
@@ -494,15 +492,21 @@ impl App {
         app
     }
 
-    /// Custom commands and subagents from `~/.wizard`. The backend runs a custom command as
-    /// typed but does not list it, and keeps subagents to itself.
+    /// Custom commands (`~/.wizard/commands`, then the project's) and subagents. Wizard lists
+    /// and expands the commands too; they are read here so help can show them in their own
+    /// tab and the menu has them before wizard says.
     fn load_home(&mut self) {
         self.load_history();
         let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
             return;
         };
         let wizard = home.join(".wizard");
-        for (name, text) in read_dir_sorted(&wizard.join("commands"), "md") {
+        let mut files = read_dir_sorted(&wizard.join("commands"), "md");
+        for (name, text) in read_dir_sorted(&self.opts.cwd.join(".wizard/commands"), "md") {
+            files.retain(|(n, _)| *n != name);
+            files.push((name, text));
+        }
+        for (name, text) in files {
             let description = front_matter(&text, "description").unwrap_or_else(|| {
                 text.lines()
                     .map(str::trim)
@@ -519,7 +523,9 @@ impl App {
                     input_hint: String::new(),
                 });
             }
-            self.custom.push(name);
+            if !self.custom.contains(&name) {
+                self.custom.push(name);
+            }
         }
         for (stem, text) in read_dir_sorted(&wizard.join("subagents"), "toml") {
             let name = toml_str(&text, "name").unwrap_or(stem);
@@ -771,7 +777,7 @@ impl App {
                 } else {
                     self.shown_mode()
                 };
-                let omakase = !first && std::mem::take(&mut self.omakase);
+                let omakase = std::mem::take(&mut self.omakase);
                 let (model, effort) = if first {
                     (self.opts.model.clone(), self.opts.effort.clone())
                 } else {
@@ -1252,18 +1258,14 @@ impl App {
             });
             return;
         }
-        if self.unknown_command(&name) {
-            self.blocks.push(Block::User { text, bash: false });
-            self.output(format!("Unknown slash command: {name}"), String::new());
-            return;
-        }
         // a turn running, or a mode change not yet confirmed: the prompt waits for it, so it
         // never runs in a mode on the way to the one pressed
         // panels the look opens itself (help, status, the pickers) need no wizard mode
         let local = matches!(
             name.as_str(),
             "help" | "status" | "resume" | "continue" | "config" | "settings"
-        ) || (matches!(name.as_str(), "model" | "mode" | "rewind") && arg.is_empty());
+        ) || (matches!(name.as_str(), "model" | "mode" | "rewind" | "effort")
+            && arg.is_empty());
         if self.busy.is_some() || (self.modes_pending() && !local) {
             self.queued.push(text);
             return;
@@ -1338,21 +1340,23 @@ impl App {
             // a model or effort typed out goes the picker's way, with the picker's answer
             "model" if self.model_index(&arg).is_some() => {
                 if let Some(i) = self.model_index(&arg) {
-                    self.pick_model(i);
+                    self.apply_model(i, text);
                 }
+                return;
+            }
+            "effort" if arg.is_empty() && !self.cfg.efforts.is_empty() => {
+                let sel = self
+                    .cfg
+                    .efforts
+                    .iter()
+                    .position(|e| *e == self.cfg.effort)
+                    .unwrap_or(0);
+                self.dialog = Some(Dialog::Effort { sel });
                 return;
             }
             "effort" if self.cfg.efforts.contains(&arg) => {
                 self.blocks.push(Block::User { text, bash: false });
-                if arg != self.cfg.effort {
-                    self.send(Request::SetEffort(arg.clone()));
-                    self.cfg.effort = arg.clone();
-                }
-                self.show_effort_notice();
-                self.output(
-                    format!("Set effort level to {arg} for this session only"),
-                    String::new(),
-                );
+                self.set_effort(arg);
                 return;
             }
             "config" | "settings" => {
@@ -1423,6 +1427,8 @@ impl App {
             bash: false,
         });
         self.turns += 1;
+        // the user's own commands are prompts for the model once wizard expands them
+        self.command_turn = !name.is_empty() && !self.custom.contains(&name);
         self.start_busy();
         self.send(Request::Prompt(text));
     }
@@ -2004,32 +2010,9 @@ impl App {
             .map_or_else(|| m.to_string(), |x| x.id.clone())
     }
 
-    /// The turn running was started by a typed slash command.
+    /// The turn running is one wizard answers as a command, not a prompt for the model.
     fn slash_turn(&self) -> bool {
-        self.blocks
-            .iter()
-            .rev()
-            .find_map(|b| match b {
-                Block::User { text, bash } => Some(!bash && text.starts_with('/')),
-                _ => None,
-            })
-            .unwrap_or(false)
-    }
-
-    /// A `/name` the look does not run and wizard does not list: Claude Code says so instead
-    /// of spending a turn on it. Paths like `/etc/hosts` are prompts.
-    fn unknown_command(&self, name: &str) -> bool {
-        const OWN: &[&str] = &[
-            "btw", "plan", "config", "settings", "mode", "model", "resume", "continue", "clear",
-            "new", "reset", "exit", "quit", "help", "status", "rewind", "effort",
-        ];
-        !name.is_empty()
-            && !self.commands.is_empty()
-            && name
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ':'))
-            && !OWN.contains(&name)
-            && !self.commands.iter().any(|c| c.name == name)
+        self.command_turn
     }
 
     /// Waiting on a session option (mode, model or effort), not on a plan toggle.
@@ -2092,14 +2075,14 @@ impl App {
     /// Send the next queued prompt, once the turn is over and every mode change pressed
     /// before it has been confirmed: a prompt queued after shift+tab runs in that mode.
     fn flush_queue(&mut self) {
-        if self.busy.is_some() || self.modes_pending() || self.queued.is_empty() {
-            return;
-        }
-        let next = self.queued.remove(0);
-        let at = self.blocks.len();
-        self.submit(next);
-        if matches!(self.blocks.get(at), Some(Block::User { .. })) {
-            self.from_queue.push(at);
+        // one the look answers itself (a picker, /config) starts no turn: the next goes too
+        while self.busy.is_none() && !self.modes_pending() && !self.queued.is_empty() {
+            let next = self.queued.remove(0);
+            let at = self.blocks.len();
+            self.submit(next);
+            if matches!(self.blocks.get(at), Some(Block::User { .. })) {
+                self.from_queue.push(at);
+            }
         }
     }
 
@@ -2145,6 +2128,14 @@ impl App {
                 });
                 let name = self.model_name();
                 self.output(format!("Kept model as {name}"), name);
+            }
+            Some(Dialog::Effort { .. }) => {
+                self.blocks.push(Block::User {
+                    text: "/effort ".into(),
+                    bash: false,
+                });
+                let e = self.cfg.effort.clone();
+                self.output(format!("Kept effort level as {e}"), String::new());
             }
             Some(Dialog::Mode { .. }) => {
                 self.blocks.push(Block::User {
@@ -2266,6 +2257,28 @@ impl App {
                         self.pick_mode(c as usize - '1' as usize)
                     }
                     KeyCode::Enter => self.pick_mode(sel),
+                    _ => {}
+                }
+            }
+            Dialog::Effort { sel } => {
+                let n = self.cfg.efforts.len().max(1);
+                match key.code {
+                    KeyCode::Down => self.dialog = Some(Dialog::Effort { sel: (sel + 1) % n }),
+                    KeyCode::Up => {
+                        self.dialog = Some(Dialog::Effort {
+                            sel: (sel + n - 1) % n,
+                        })
+                    }
+                    KeyCode::Enter => {
+                        if let Some(e) = self.cfg.efforts.get(sel).cloned() {
+                            self.dialog = None;
+                            self.blocks.push(Block::User {
+                                text: "/effort ".into(),
+                                bash: false,
+                            });
+                            self.set_effort(e);
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -2617,6 +2630,27 @@ impl App {
     }
 
     fn pick_model(&mut self, i: usize) {
+        self.apply_model(i, "/model ".into());
+    }
+
+    /// Effort for this session, through the same queue as a mode change, so a refusal while
+    /// wizard is busy is retried and a prompt sent next waits for it.
+    fn set_effort(&mut self, e: String) {
+        if e != self.cfg.effort {
+            self.mode_steps.push_back(ModeStep::Effort(e.clone()));
+            self.cfg.effort = e.clone();
+            self.pump_modes();
+        }
+        self.show_effort_notice();
+        self.output(
+            format!("Set effort level to {e} for this session only"),
+            String::new(),
+        );
+    }
+
+    /// The model picked at `i` (and the effort the picker shows), answered as the picker does;
+    /// `typed` is the line echoed above the answer.
+    fn apply_model(&mut self, i: usize, typed: String) {
         let Some(m) = self.cfg.models.get(i).cloned() else {
             return;
         };
@@ -2624,25 +2658,27 @@ impl App {
         self.show_effort_notice();
         let effort = self.effort_preview.take().filter(|e| *e != self.cfg.effort);
         self.blocks.push(Block::User {
-            text: "/model ".into(),
+            text: typed,
             bash: false,
         });
         if m.id == self.cfg.model && effort.is_none() {
             self.output(format!("Kept model as {}", m.name), m.name);
             return;
         }
+        // queued like a mode change: retried while wizard is busy, and a prompt waits for it
         if m.id != self.cfg.model {
-            self.send(Request::SetModel(m.id.clone()));
+            self.mode_steps.push_back(ModeStep::Model(m.id.clone()));
             self.cfg.model = m.id;
         }
         let mut text = format!("Set model to {} for this session only", m.name);
         if let Some(e) = effort {
-            self.send(Request::SetEffort(e.clone()));
+            self.mode_steps.push_back(ModeStep::Effort(e.clone()));
             self.cfg.effort = e.clone();
             self.show_effort_notice();
             text.push_str(&format!(" with {e} effort"));
         }
         self.output(text, m.name);
+        self.pump_modes();
     }
 
     /// ←/→ in the model picker: only what the picker shows changes until a pick is confirmed.

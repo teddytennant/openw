@@ -31,6 +31,7 @@ pub fn draw(buf: &mut Buffer, app: &mut App, dialog: &Dialog) -> u16 {
         Dialog::Model { sel } => model(app, *sel, w as usize, h as usize),
         Dialog::Status => status(app, w as usize),
         Dialog::Mode { sel } => mode(app, *sel, w as usize),
+        Dialog::Effort { sel } => effort(app, *sel, w as usize),
         Dialog::Resume { sel, query } => resume(app, *sel, query, w as usize, h as usize),
         Dialog::Rewind { sel } => rewind(app, *sel, w as usize, h as usize),
         Dialog::RewindConfirm { nth, sel } => rewind_confirm(app, *nth, *sel, w as usize),
@@ -253,17 +254,47 @@ pub fn sorted_commands(app: &App) -> Vec<&agent_core::SlashCommand> {
 
 /// `/mode`: laid out like the model picker, one row per mode.
 fn mode(app: &App, sel: usize, w: usize) -> Panel {
-    let th = app.theme;
     let (now, _) = app.shown_mode();
-    let mut top = vec![Row::of("   ", Style::new())
-        .with("Select mode", th.fg(th.title).add_modifier(Modifier::BOLD))];
     let about = "Switch between Wizard's modes for this session. shift+tab also cycles them, \
                  with plan mode after the last.";
+    choices(app, "Select mode", about, &app.cfg.modes, &now, sel, w)
+}
+
+/// `/effort`: the same list for the model's reasoning efforts.
+fn effort(app: &App, sel: usize, w: usize) -> Panel {
+    let about = "Set how hard the model thinks, for this session. The model picker adjusts it \
+                 too, with ←/→.";
+    choices(
+        app,
+        "Select effort",
+        about,
+        &app.cfg.efforts,
+        &app.cfg.effort,
+        sel,
+        w,
+    )
+}
+
+/// A picker of `items`, the one in use ticked, laid out like the model picker.
+fn choices(
+    app: &App,
+    title: &str,
+    about: &str,
+    items: &[String],
+    now: &str,
+    sel: usize,
+    w: usize,
+) -> Panel {
+    let th = app.theme;
+    let mut top = vec![Row::of("   ", Style::new()).with(
+        title.to_string(),
+        th.fg(th.title).add_modifier(Modifier::BOLD),
+    )];
     for r in wrap_str(about, th.dim(), w.saturating_sub(6)) {
         top.push(indent(r, 3));
     }
     top.push(Row::new());
-    for (i, m) in app.cfg.modes.iter().enumerate() {
+    for (i, m) in items.iter().enumerate() {
         let current = *m == now;
         let mut row = Row::new();
         if i == sel {

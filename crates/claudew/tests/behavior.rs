@@ -889,20 +889,42 @@ fn omakase_is_carried_into_a_new_session() {
     assert!(hn.app.plan && hn.app.omakase);
 }
 
-/// A `/name` neither the look nor wizard runs is answered here, not sent to the model; a path
-/// is still a prompt.
+/// The look does not judge a `/name` it does not run: wizard knows its own commands, the
+/// user's, and which are paths, and answers an unknown one itself.
 #[test]
-fn an_unknown_slash_command_is_answered_locally() {
+fn a_slash_command_the_look_does_not_run_goes_to_wizard() {
     let mut hn = harness();
     hn.app.submit("/zzzfoo".into());
+    assert_eq!(hn.sent(), [Request::Prompt("/zzzfoo".into())]);
+}
+
+/// A queued command the look answers itself starts no turn, so the queue moves on past it,
+/// and a typed effort waits for wizard like a mode change does.
+#[test]
+fn the_queue_moves_past_a_local_command() {
+    let mut hn = harness();
+    hn.app.cfg.efforts = vec!["low".into(), "high".into()];
+    hn.app.cfg.effort = "high".into();
+    hn.app.submit("please wait".into());
+    hn.sent();
+    hn.event(Event::TurnStart);
+    hn.app.submit("/effort low".into());
+    hn.app.submit("fourth prompt".into());
     assert!(hn.sent().is_empty());
-    assert!(hn
-        .render()
-        .plain()
-        .contains("Unknown slash command: zzzfoo"));
-    hn.app.submit("/etc/hosts what is in it".into());
-    assert_eq!(
-        hn.sent(),
-        [Request::Prompt("/etc/hosts what is in it".into())]
-    );
+    hn.event(Event::TurnEnd(StopReason::EndTurn));
+    assert_eq!(hn.sent(), [Request::SetEffort("low".into())]);
+    let mut cfg = hn.app.cfg.clone();
+    cfg.effort = "low".into();
+    hn.event(Event::ConfigChanged(cfg));
+    assert_eq!(hn.sent(), [Request::Prompt("fourth prompt".into())]);
+    assert!(hn.app.queued.is_empty());
+}
+
+/// A typed `/model <name>` is echoed as typed.
+#[test]
+fn a_typed_model_is_echoed_as_typed() {
+    let mut hn = harness();
+    let name = hn.app.cfg.models[1].name.clone();
+    hn.app.submit(format!("/model {name}"));
+    assert!(hn.render().plain().contains(&format!("/model {name}")));
 }
