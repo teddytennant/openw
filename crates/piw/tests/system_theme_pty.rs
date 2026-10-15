@@ -13,6 +13,9 @@ use std::time::{Duration, Instant};
 use piw::theme::COLOR_QUERY;
 use serde_json::Value;
 
+/// The longest any wait here may take; the waits end as soon as what they wait for is there.
+const WAIT: Duration = Duration::from_secs(20);
+
 const GOLDEN: &str = include_str!("../../tuikit/themes-pi/system-golden-more.json");
 
 struct Pty {
@@ -182,6 +185,30 @@ impl Pty {
         }
     }
 
+    /// Pump until `done` holds or `deadline` passes, in short slices: a loaded machine draws
+    /// late, so a fixed wait either flakes or wastes time. Returns whether `done` held.
+    fn pump_until(&mut self, deadline: Duration, done: impl Fn(&Pty) -> bool) -> bool {
+        let end = Instant::now() + deadline;
+        while Instant::now() < end {
+            if done(self) {
+                return true;
+            }
+            self.pump(Duration::from_millis(20));
+        }
+        done(self)
+    }
+
+    /// Pump until the first screen is up and any reply to the colour query has gone out.
+    fn start(&mut self) {
+        let up = self.pump_until(WAIT, |p| {
+            p.queued.is_empty()
+                && (p.text().contains("fake-model") || p.text().contains("Pi can explain"))
+        });
+        assert!(up, "piw never drew: {:?}", self.text());
+        // what the reply repaints follows it
+        self.pump(Duration::from_millis(200));
+    }
+
     fn respond(&mut self) {
         let new = self.out[self.seen..].to_vec();
         self.seen = self.out.len();
@@ -247,11 +274,15 @@ fn behaviour_for(name: &str) -> Behaviour {
     }
 }
 
-/// Types a prompt and returns everything written from then on.
-fn send_prompt(p: &mut Pty) -> String {
+/// Types a prompt and returns everything written from then on, once `want` is among it (or
+/// the deadline passed, for the assertion to say what was missing).
+fn send_prompt(p: &mut Pty, want: &str) -> String {
     let mark = p.out.len();
     p.send(b"hello [[hello]]\r");
-    p.pump(Duration::from_millis(1500));
+    p.pump_until(WAIT, |p| {
+        String::from_utf8_lossy(&p.out[mark..]).contains(want)
+    });
+    p.pump(Duration::from_millis(200));
     String::from_utf8_lossy(&p.out[mark..]).into_owned()
 }
 
@@ -262,7 +293,7 @@ fn sgr_bg(c: (u8, u8, u8)) -> String {
 #[test]
 fn the_query_is_written_as_pi_writes_it() {
     let mut p = Pty::spawn(Behaviour::nothing(), &[]);
-    p.pump(Duration::from_millis(600));
+    p.start();
     assert!(p.text().contains(COLOR_QUERY), "{:?}", p.text());
     assert!(COLOR_QUERY.starts_with("\x1b]10;?\x07\x1b]11;?\x07\x1b]4;0;?\x07"));
     assert!(COLOR_QUERY.ends_with("\x1b]4;15;?\x07\x1b[c"));
@@ -278,10 +309,10 @@ fn a_reporting_terminal_gets_its_generated_theme_on_the_first_screen() {
         "solarized-light-palette",
     ] {
         let mut p = Pty::spawn(behaviour_for(name), &[]);
-        p.pump(Duration::from_millis(600));
-        let drawn = send_prompt(&mut p);
+        p.start();
         let colors = &vector(name)["out"]["colors"];
         let user_bg = sgr_bg(hex(colors["userMessageBg"].as_str().unwrap()));
+        let drawn = send_prompt(&mut p, &user_bg);
         assert!(
             drawn.contains(&user_bg),
             "{name}: no {user_bg} in the user message"
@@ -300,8 +331,8 @@ fn a_reporting_terminal_gets_its_generated_theme_on_the_first_screen() {
 #[test]
 fn a_terminal_that_reports_nothing_gets_the_fallback_tier() {
     let mut p = Pty::spawn(Behaviour::nothing(), &[]);
-    p.pump(Duration::from_millis(600));
-    let drawn = send_prompt(&mut p);
+    p.start();
+    let drawn = send_prompt(&mut p, "hello");
     // no panel background anywhere, palette index 6 for the thinking rule, faint footer
     assert!(!drawn.contains("48;2;"), "a panel was painted: {drawn:?}");
     // (the rules and the footer were painted with the first frame, before the prompt)
@@ -323,10 +354,11 @@ fn replies_written_one_byte_at_a_time_decode_the_same() {
     let mut b = behaviour_for("onedark-palette");
     b.bytewise = true;
     let mut p = Pty::spawn(b, &[]);
-    p.pump(Duration::from_millis(1500));
-    let drawn = send_prompt(&mut p);
+    p.start();
     let colors = &vector("onedark-palette")["out"]["colors"];
-    assert!(drawn.contains(&sgr_bg(hex(colors["userMessageBg"].as_str().unwrap()))));
+    let user_bg = sgr_bg(hex(colors["userMessageBg"].as_str().unwrap()));
+    let drawn = send_prompt(&mut p, &user_bg);
+    assert!(drawn.contains(&user_bg));
 }
 
 #[test]
@@ -336,18 +368,19 @@ fn a_terminal_that_answers_after_the_wait_still_themes_the_screen_and_leaves_no_
     let mut b = behaviour_for("black-bg-only");
     b.delay = Duration::from_millis(400);
     let mut p = Pty::spawn(b, &[]);
-    p.pump(Duration::from_millis(1200));
-    let drawn = send_prompt(&mut p);
+    p.start();
     let colors = &vector("black-bg-only")["out"]["colors"];
-    assert!(
-        drawn.contains(&sgr_bg(hex(colors["userMessageBg"].as_str().unwrap()))),
-        "late colours"
-    );
+    let user_bg = sgr_bg(hex(colors["userMessageBg"].as_str().unwrap()));
+    let drawn = send_prompt(&mut p, &user_bg);
+    assert!(drawn.contains(&user_bg), "late colours");
     assert!(!p.text().contains("rgb:"));
     // the editor text of a later keystroke is exactly what was typed
     let mark = p.out.len();
     p.send(b"abc");
-    p.pump(Duration::from_millis(400));
+    p.pump_until(WAIT, |p| {
+        String::from_utf8_lossy(&p.out[mark..]).contains("abc")
+    });
+    p.pump(Duration::from_millis(100));
     let after = String::from_utf8_lossy(&p.out[mark..]).into_owned();
     assert!(after.contains("abc"), "{after:?}");
     assert!(
@@ -377,7 +410,7 @@ fn a_terminal_that_never_answers_costs_a_tenth_of_a_second_not_the_keyboard_prob
 #[test]
 fn an_explicit_theme_is_not_touched_by_what_the_terminal_says() {
     let mut p = Pty::spawn(behaviour_for("onedark-palette"), &["--use-theme", "dark"]);
-    p.pump(Duration::from_millis(600));
-    let drawn = send_prompt(&mut p);
+    p.start();
+    let drawn = send_prompt(&mut p, "48;2;33;59;73");
     assert!(drawn.contains("48;2;33;59;73"), "dark's userMessageBg");
 }
