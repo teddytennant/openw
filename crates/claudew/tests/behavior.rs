@@ -744,3 +744,95 @@ fn ui_tab_completes_the_looks() {
     hn.press(KeyCode::Tab);
     assert_eq!(hn.app.editor.text(), "/ui pi");
 }
+
+/// Wizard opens a loaded or rewound session on its config's defaults: the look puts the picked
+/// model and plan mode back, and a prompt sent meanwhile waits for both.
+#[test]
+fn a_reloaded_session_gets_its_model_and_plan_back_before_a_prompt() {
+    let mut hn = harness();
+    let defaults = hn.app.cfg.clone();
+    let picked = hn.app.cfg.models[1].id.clone();
+    hn.app.cfg.model = picked.clone();
+    hn.app.plan = true;
+    hn.type_str("/resume some-session");
+    hn.press(KeyCode::Enter);
+    assert_eq!(hn.sent(), [Request::LoadSession("some-session".into())]);
+    hn.type_str("please write");
+    hn.press(KeyCode::Enter);
+    assert!(hn.sent().is_empty(), "the prompt waits for the session");
+    hn.event(Event::Ready {
+        session_id: "some-session".into(),
+        config: defaults,
+    });
+    assert_eq!(hn.sent(), [Request::SetModel(picked.clone())]);
+    assert!(
+        hn.render().plain().contains("plan mode on"),
+        "the footer keeps plan mode"
+    );
+    let mut cfg = hn.app.cfg.clone();
+    cfg.model = picked;
+    hn.event(Event::ConfigChanged(cfg));
+    assert_eq!(hn.sent(), [Request::Prompt("/plan".into())]);
+    plan_answer(&mut hn, "plan mode on");
+    assert_eq!(hn.sent(), [Request::Prompt("please write".into())]);
+}
+
+/// The side question's turn is not the user's: it starts no spinner, and a prompt sent during
+/// it waits for it instead of having its own turn ended by the side question's.
+#[test]
+fn a_prompt_sent_during_btw_waits_and_keeps_its_turn() {
+    let mut hn = harness();
+    hn.type_str("/btw what is 2+2");
+    hn.press(KeyCode::Enter);
+    hn.sent();
+    hn.event(Event::TurnStart);
+    assert!(hn.app.busy.is_none(), "no spinner for a side question");
+    hn.press(KeyCode::Esc);
+    hn.type_str("please write");
+    hn.press(KeyCode::Enter);
+    assert!(hn.sent().is_empty(), "held behind the side question");
+    hn.event(Event::TurnEnd(StopReason::EndTurn));
+    assert_eq!(hn.sent(), [Request::Prompt("please write".into())]);
+    hn.event(Event::TurnStart);
+    assert!(hn.app.busy.is_some(), "the prompt's own turn is running");
+}
+
+/// shift+tab before the session exists counts, and a prompt sent then waits for it.
+#[test]
+fn a_prompt_sent_before_the_session_waits_for_early_presses() {
+    let (tx, mut requests) = tokio::sync::mpsc::unbounded_channel();
+    let (mtx, _msgs) = tokio::sync::mpsc::unbounded_channel();
+    let mut app = claudew::app::App::new(Default::default(), tx, mtx);
+    app.on_key(crossterm::event::KeyEvent::from(KeyCode::BackTab));
+    app.submit("early write".into());
+    let mut sent = Vec::new();
+    while let Ok(r) = requests.try_recv() {
+        sent.push(r);
+    }
+    assert!(
+        !sent.iter().any(|r| matches!(r, Request::Prompt(_))),
+        "{sent:?}"
+    );
+    let config = agent_core::Config {
+        mode: "genie".into(),
+        modes: vec!["genie".into(), "sovereign".into(), "chat".into()],
+        ..Default::default()
+    };
+    app.on_event(Event::Ready {
+        session_id: "s".into(),
+        config,
+    });
+    let first = requests.try_recv().ok();
+    assert_eq!(first, Some(Request::SetMode("sovereign".into())));
+    assert!(requests.try_recv().is_err(), "the prompt still waits");
+}
+
+/// `/plan <text>` turns plan mode on and sends the text once wizard is in it.
+#[test]
+fn plan_with_text_sends_the_text_in_plan_mode() {
+    let mut hn = harness();
+    hn.app.submit("/plan refine the approach".into());
+    assert_eq!(hn.sent(), [Request::Prompt("/plan".into())]);
+    plan_answer(&mut hn, "plan mode on");
+    assert_eq!(hn.sent(), [Request::Prompt("refine the approach".into())]);
+}

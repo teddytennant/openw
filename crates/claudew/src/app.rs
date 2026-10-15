@@ -202,6 +202,10 @@ pub enum Dialog {
         sel: usize,
     },
     Status,
+    /// `/mode`: wizard's modes, the one in use ticked.
+    Mode {
+        sel: usize,
+    },
     Resume {
         sel: usize,
         query: String,
@@ -244,6 +248,8 @@ pub struct Busy {
 pub enum ModeStep {
     Plan,
     Mode(String),
+    Model(String),
+    Effort(String),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -297,6 +303,9 @@ pub struct App {
     pub turns: usize,
     pub fatal: Option<String>,
     pub quit: bool,
+    /// Quitting for a `/ui` switch: the look taking over is where the session goes on, so
+    /// no resume hint is left behind.
+    pub switched: bool,
     pub dirty: bool,
     pub repaint: bool,
     pub suspend: bool,
@@ -352,6 +361,9 @@ pub struct App {
     no_session: bool,
     /// shift+tab presses made before the first session came up.
     early_presses: usize,
+    /// A session load or a new session asked for and not yet open: prompts wait for it and
+    /// for the choices carried into it.
+    loading: bool,
     /// The running turn is wizard answering /btw.
     btw_turn: bool,
     /// A typed /rewind went through: the transcript is rebuilt when its turn ends.
@@ -421,6 +433,7 @@ impl App {
             turns: 0,
             fatal: None,
             quit: false,
+            switched: false,
             dirty: true,
             repaint: false,
             suspend: false,
@@ -454,6 +467,7 @@ impl App {
             mode_retries: 0,
             no_session: false,
             early_presses: 0,
+            loading: false,
             btw_turn: false,
             reload_after_turn: false,
             search_hint: false,
@@ -732,29 +746,51 @@ impl App {
         self.dirty = true;
         match ev {
             Event::Ready { session_id, config } => {
+                // wizard opens every session, new, loaded or rewound, on its config's defaults:
+                // what the user chose (flags at first, then picks and presses) goes back on it
+                let first = !self.ready;
+                let (mode, plan) = if first {
+                    (config.mode.clone(), self.plan)
+                } else {
+                    self.shown_mode()
+                };
+                let (model, effort) = if first {
+                    (self.opts.model.clone(), self.opts.effort.clone())
+                } else {
+                    (Some(self.cfg.model.clone()), Some(self.cfg.effort.clone()))
+                };
                 self.session_id = session_id;
                 self.cfg = config;
-                if !self.ready {
+                self.plan = false;
+                self.loading = false;
+                self.no_session = false;
+                self.silent = 0;
+                self.mode_steps.clear();
+                self.mode_waiting = None;
+                self.mode_target = None;
+                self.mode_retries = 0;
+                self.mode_retry = None;
+                if first {
                     self.ready = true;
                     self.notice = self.effort_notice();
                     self.notice_until = Some(self.clock.elapsed() + NOTICE_TTL);
-                    if let Some(m) = self.opts.model.clone() {
-                        self.send(Request::SetModel(m));
-                    }
-                    if let Some(e) = self.opts.effort.clone() {
-                        self.send(Request::SetEffort(e));
-                    }
-                    if self.plan {
-                        self.toggle_plan();
-                    }
-                    for p in std::mem::take(&mut self.pending_prompts) {
-                        self.submit(p);
-                    }
                 }
-                // shift+tab pressed before the session existed, or while it was replaced
-                self.no_session = false;
+                // a model switch rebuilds wizard's agent, so it goes before mode and plan
+                let model = model.map(|m| self.model_id(&m));
+                if let Some(m) = model.filter(|m| !m.is_empty() && *m != self.cfg.model) {
+                    self.mode_steps.push_back(ModeStep::Model(m));
+                }
+                if let Some(e) = effort.filter(|e| !e.is_empty() && *e != self.cfg.effort) {
+                    self.mode_steps.push_back(ModeStep::Effort(e));
+                }
+                self.go_to((mode, plan));
+                // shift+tab pressed before the session existed
                 for _ in 0..std::mem::take(&mut self.early_presses) {
                     self.cycle_mode();
+                }
+                // prompts given before the session: held until all of the above is confirmed
+                for p in std::mem::take(&mut self.pending_prompts) {
+                    self.submit(p);
                 }
                 self.pump_modes();
             }
@@ -782,8 +818,14 @@ impl App {
             }
             Event::ConfigChanged(c) => {
                 self.cfg = c;
-                // only the change asked for answers the wait; a model or effort update does not
-                if matches!(&self.mode_waiting, Some(ModeStep::Mode(m)) if *m == self.cfg.mode) {
+                // only the change asked for answers the wait, not some other config update
+                let answered = match &self.mode_waiting {
+                    Some(ModeStep::Mode(m)) => *m == self.cfg.mode,
+                    Some(ModeStep::Model(m)) => *m == self.cfg.model,
+                    Some(ModeStep::Effort(e)) => *e == self.cfg.effort,
+                    _ => false,
+                };
+                if answered {
                     self.mode_waiting = None;
                     self.mode_retries = 0;
                     self.pump_modes();
@@ -813,6 +855,8 @@ impl App {
                 }
                 self.scroll = 0;
             }
+            // the side question's turn is not the user's: no spinner, nothing to interrupt
+            Event::TurnStart if self.btw_turn => {}
             Event::TurnStart if self.silent > 0 && self.busy.is_none() => {}
             Event::TurnStart => {
                 if self.busy.is_none() {
@@ -867,6 +911,12 @@ impl App {
                 }
             }
             Event::Usage(u) => self.usage = u,
+            // the side question's turn: it never ends the user's turn, and nothing was sent
+            // behind it, so a held prompt or a mode change goes next
+            Event::TurnEnd(_) if self.btw_turn => {
+                self.btw_turn = false;
+                self.pump_modes();
+            }
             Event::TurnEnd(_) if self.silent > 0 && self.busy.is_none() => {
                 self.silent -= 1;
                 if self.mode_waiting == Some(ModeStep::Plan) {
@@ -882,8 +932,7 @@ impl App {
             // wizard turned a mode change down because a turn or its follow-up was still in
             // flight: try again shortly, and again, until it takes
             Event::Notice { text, .. }
-                if text.starts_with("Options can only be changed")
-                    && matches!(self.mode_waiting, Some(ModeStep::Mode(_))) =>
+                if text.starts_with("Options can only be changed") && self.waiting_on_option() =>
             {
                 if let Some(step) = self.mode_waiting.take() {
                     self.mode_steps.push_front(step);
@@ -896,25 +945,56 @@ impl App {
                 }
             }
             // no session yet: hold the change until there is one
-            Event::Notice { text, .. }
-                if text == "No session yet."
-                    && matches!(self.mode_waiting, Some(ModeStep::Mode(_))) =>
-            {
+            Event::Notice { text, .. } if text == "No session yet." && self.waiting_on_option() => {
                 if let Some(step) = self.mode_waiting.take() {
                     self.mode_steps.push_front(step);
                 }
                 self.no_session = true;
             }
             Event::Notice { text, .. }
-                if text.starts_with("Could not change the setting")
-                    && matches!(self.mode_waiting, Some(ModeStep::Mode(_))) =>
+                if text.starts_with("Could not change the setting") && self.waiting_on_option() =>
             {
-                self.mode_failed(text.trim_start_matches("Could not change the setting: "));
+                let why = text.trim_start_matches("Could not change the setting: ");
+                // a model or effort carried into a session that will not take it is skipped;
+                // the mode and plan steps after it still go
+                let what = match self.mode_waiting.take() {
+                    Some(ModeStep::Model(_)) => Some("Model"),
+                    Some(ModeStep::Effort(_)) => Some("Effort"),
+                    other => {
+                        self.mode_waiting = other;
+                        None
+                    }
+                };
+                match what {
+                    Some(what) => {
+                        self.mode_retries = 0;
+                        self.blocks.push(Block::Notice {
+                            level: NoticeLevel::Warn,
+                            text: format!("{what} not changed: {why}"),
+                        });
+                        self.pump_modes();
+                    }
+                    None => self.mode_failed(why),
+                }
+            }
+            // a load or a new session that failed: nothing is coming to wait for
+            Event::Notice { text, .. }
+                if self.loading
+                    && (text.starts_with("Could not load session")
+                        || text.starts_with("New session failed")) =>
+            {
+                self.loading = false;
+                self.blocks.push(Block::Notice {
+                    level: NoticeLevel::Error,
+                    text,
+                });
+                self.pump_modes();
             }
             Event::Notice { text, .. }
                 if agent_core::switched_look(&text).is_some_and(|l| l != LOOK) =>
             {
                 self.quit = true;
+                self.switched = true;
             }
             // a typed /rewind: once its turn ends the transcript is rebuilt from the session
             Event::Notice { text, .. }
@@ -936,6 +1016,10 @@ impl App {
                 // /plan and /omakase answers say where plan mode is; leaving omakase stays in it
                 if let Some(on) = agent_core::plan_mode(&text) {
                     self.plan = on;
+                    // wizard saying an approved plan left plan mode: the approval already shows
+                    if self.busy.is_some() && self.silent == 0 {
+                        return;
+                    }
                 }
                 if self.silent > 0 && level == NoticeLevel::Info {
                     return;
@@ -1007,11 +1091,7 @@ impl App {
             self.busy = None;
             self.blocks.clear();
             self.from_queue.clear();
-            self.send(Request::LoadSession(self.session_id.clone()));
-            return;
-        }
-        if std::mem::take(&mut self.btw_turn) {
-            self.busy = None;
+            self.load(Some(self.session_id.clone()));
             return;
         }
         if let Some(text) = self.rewinding.take() {
@@ -1141,8 +1221,10 @@ impl App {
         // a turn running, or a mode change not yet confirmed: the prompt waits for it, so it
         // never runs in a mode on the way to the one pressed
         // panels the look opens itself (help, status, the pickers) need no wizard mode
-        let local = matches!(name.as_str(), "help" | "status" | "resume" | "continue")
-            || (name == "model" && arg.is_empty());
+        let local = matches!(
+            name.as_str(),
+            "help" | "status" | "resume" | "continue" | "config" | "settings"
+        ) || (matches!(name.as_str(), "model" | "mode") && arg.is_empty());
         if self.busy.is_some() || (self.modes_pending() && !local) {
             self.queued.push(text);
             return;
@@ -1179,6 +1261,51 @@ impl App {
                 }
                 return;
             }
+            "plan" if matches!(arg.as_str(), "on" | "off") && !self.cfg.modes.is_empty() => {
+                self.blocks.push(Block::User { text, bash: false });
+                let (mode, plan) = self.shown_mode();
+                let on = arg == "on";
+                if on != plan {
+                    self.go_to((mode, on));
+                }
+                let said = if on {
+                    "Enabled plan mode"
+                } else {
+                    "Disabled plan mode"
+                };
+                self.output(said, String::new());
+                return;
+            }
+            // `/plan <text>`: plan mode stays on (or goes on) and the text is the prompt, sent
+            // once wizard is in plan mode
+            "plan" if !self.cfg.modes.is_empty() => {
+                let (mode, plan) = self.shown_mode();
+                if !plan {
+                    self.go_to((mode, true));
+                }
+                self.submit(arg);
+                return;
+            }
+            "config" | "settings" => {
+                self.blocks.push(Block::User { text, bash: false });
+                self.output(
+                    "Wizard has no settings panel here: /model and /mode change this session, \
+                     and ~/.wizard/config.toml (or `wizard setup`) holds the defaults",
+                    String::new(),
+                );
+                return;
+            }
+            "mode" if arg.is_empty() && !self.cfg.modes.is_empty() => {
+                let (mode, _) = self.shown_mode();
+                let sel = self.cfg.modes.iter().position(|m| *m == mode).unwrap_or(0);
+                self.dialog = Some(Dialog::Mode { sel });
+                return;
+            }
+            "mode" if self.cfg.modes.contains(&arg) => {
+                self.blocks.push(Block::User { text, bash: false });
+                self.pick_mode_named(arg);
+                return;
+            }
             "clear" | "new" | "reset" => {
                 self.notice = None;
                 self.from_queue.clear();
@@ -1187,7 +1314,7 @@ impl App {
                 self.turns = 0;
                 self.usage = Usage::default();
                 self.blocks.push(Block::User { text, bash: false });
-                self.send(Request::NewSession);
+                self.load(None);
                 return;
             }
             "help" => {
@@ -1217,7 +1344,7 @@ impl App {
             }
             "resume" | "continue" => {
                 self.blocks.push(Block::User { text, bash: false });
-                self.send(Request::LoadSession(arg));
+                self.load(Some(arg));
                 return;
             }
             _ => {}
@@ -1785,12 +1912,55 @@ impl App {
 
     /// A mode change is pressed and not yet confirmed: prompts wait for it.
     pub fn modes_pending(&self) -> bool {
-        self.mode_waiting.is_some() || !self.mode_steps.is_empty() || self.silent > 0
+        self.mode_waiting.is_some()
+            || !self.mode_steps.is_empty()
+            || self.silent > 0
+            || self.early_presses > 0
+            || self.loading
+            || self.btw_turn
+    }
+
+    /// The id wizard reports for `m`, a model id or a name (`--model grok-4`), so the wait for
+    /// it is answered by the config update that follows.
+    fn model_id(&self, m: &str) -> String {
+        let models = &self.cfg.models;
+        if m.contains('/') || models.iter().any(|x| x.id == m) {
+            return m.to_string();
+        }
+        let current = self.cfg.model.split('/').next().unwrap_or("");
+        models
+            .iter()
+            .filter(|x| x.name == m)
+            .max_by_key(|x| x.provider == current)
+            .map_or_else(|| m.to_string(), |x| x.id.clone())
+    }
+
+    /// Waiting on a session option (mode, model or effort), not on a plan toggle.
+    fn waiting_on_option(&self) -> bool {
+        matches!(
+            self.mode_waiting,
+            Some(ModeStep::Mode(_) | ModeStep::Model(_) | ModeStep::Effort(_))
+        )
+    }
+
+    /// Open a saved session, or a new one with `None`; prompts wait until it is open.
+    fn load(&mut self, id: Option<String>) {
+        self.loading = true;
+        self.send(match id {
+            Some(id) => Request::LoadSession(id),
+            None => Request::NewSession,
+        });
     }
 
     fn pump_modes(&mut self) {
         // before the session exists there is nothing to change; Ready runs this again
-        if self.mode_waiting.is_some() || self.busy.is_some() || !self.ready || self.no_session {
+        if self.mode_waiting.is_some()
+            || self.busy.is_some()
+            || self.btw_turn
+            || self.loading
+            || !self.ready
+            || self.no_session
+        {
             return;
         }
         match self.mode_steps.pop_front() {
@@ -1802,6 +1972,14 @@ impl App {
                 self.mode_waiting = Some(ModeStep::Mode(m.clone()));
                 self.send(Request::SetMode(m));
             }
+            Some(ModeStep::Model(m)) => {
+                self.mode_waiting = Some(ModeStep::Model(m.clone()));
+                self.send(Request::SetModel(m));
+            }
+            Some(ModeStep::Effort(e)) => {
+                self.mode_waiting = Some(ModeStep::Effort(e.clone()));
+                self.send(Request::SetEffort(e));
+            }
             None => {
                 self.mode_target = None;
                 self.flush_queue();
@@ -1812,12 +1990,7 @@ impl App {
     /// Send the next queued prompt, once the turn is over and every mode change pressed
     /// before it has been confirmed: a prompt queued after shift+tab runs in that mode.
     fn flush_queue(&mut self) {
-        if self.busy.is_some()
-            || self.mode_waiting.is_some()
-            || !self.mode_steps.is_empty()
-            || self.queued.is_empty()
-            || self.silent > 0
-        {
+        if self.busy.is_some() || self.modes_pending() || self.queued.is_empty() {
             return;
         }
         let next = self.queued.remove(0);
@@ -1870,6 +2043,14 @@ impl App {
                 });
                 let name = self.model_name();
                 self.output(format!("Kept model as {name}"), name);
+            }
+            Some(Dialog::Mode { .. }) => {
+                self.blocks.push(Block::User {
+                    text: "/mode ".into(),
+                    bash: false,
+                });
+                let (mode, _) = self.shown_mode();
+                self.output(format!("Kept mode as {mode}"), String::new());
             }
             Some(Dialog::Resume { .. }) => {
                 self.resume_all = false;
@@ -1970,6 +2151,22 @@ impl App {
                     _ => {}
                 }
             }
+            Dialog::Mode { sel } => {
+                let n = self.cfg.modes.len().max(1);
+                match key.code {
+                    KeyCode::Down => self.dialog = Some(Dialog::Mode { sel: (sel + 1) % n }),
+                    KeyCode::Up => {
+                        self.dialog = Some(Dialog::Mode {
+                            sel: (sel + n - 1) % n,
+                        })
+                    }
+                    KeyCode::Char(c @ '1'..='9') if (c as usize - '1' as usize) < n => {
+                        self.pick_mode(c as usize - '1' as usize)
+                    }
+                    KeyCode::Enter => self.pick_mode(sel),
+                    _ => {}
+                }
+            }
             Dialog::Status => {
                 if key.code == KeyCode::Enter {
                     self.dialog = None;
@@ -2003,7 +2200,7 @@ impl App {
                             self.dialog = None;
                             self.blocks.clear();
                             self.from_queue.clear();
-                            self.send(Request::LoadSession(id.clone()));
+                            self.load(Some(id.clone()));
                         }
                         return;
                     }
@@ -2247,7 +2444,7 @@ impl App {
         if answer.starts_with("rewound to before turn") {
             self.blocks.clear();
             self.from_queue.clear();
-            self.send(Request::LoadSession(self.session_id.clone()));
+            self.load(Some(self.session_id.clone()));
             self.editor.set_text(&text);
         } else {
             let why = if answer.is_empty() {
@@ -2284,6 +2481,31 @@ impl App {
     fn show_effort_notice(&mut self) {
         self.notice = self.effort_notice();
         self.notice_until = Some(self.clock.elapsed() + NOTICE_TTL);
+    }
+
+    fn pick_mode(&mut self, i: usize) {
+        let Some(m) = self.cfg.modes.get(i).cloned() else {
+            return;
+        };
+        self.dialog = None;
+        self.blocks.push(Block::User {
+            text: "/mode ".into(),
+            bash: false,
+        });
+        self.pick_mode_named(m);
+    }
+
+    /// Through the same steps as shift+tab, so a prompt sent next waits for it. Plan mode stays
+    /// on unless the mode is chat, which has no project tools to plan with.
+    fn pick_mode_named(&mut self, m: String) {
+        let (mode, plan) = self.shown_mode();
+        if m == mode {
+            self.output(format!("Kept mode as {m}"), String::new());
+            return;
+        }
+        let plan = plan && m != "chat";
+        self.output(format!("Set mode to {m}"), String::new());
+        self.go_to((m, plan));
     }
 
     fn pick_model(&mut self, i: usize) {
@@ -2402,7 +2624,7 @@ impl App {
 
     /// What is printed to the normal screen after the UI is gone.
     pub fn epilogue(&self) -> String {
-        if self.blocks.is_empty() || self.session_id.is_empty() {
+        if self.blocks.is_empty() || self.session_id.is_empty() || self.switched {
             return "\n".to_string();
         }
         // wizard can only reopen the latest session, so it is named as that
