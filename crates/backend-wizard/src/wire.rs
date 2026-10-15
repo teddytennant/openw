@@ -462,8 +462,16 @@ pub fn parse_usage(text: &str) -> Option<Usage> {
 /// Wizard routes its own errors and notices into the message stream as
 /// `[wizard] text`; returns the text and a level when a chunk is one of those.
 pub fn wizard_notice(chunk: &str) -> Option<(NoticeLevel, String)> {
-    let rest = chunk.trim_start_matches('\n').strip_prefix("[wizard] ")?;
-    Some((NoticeLevel::Warn, rest.trim().to_string()))
+    let rest = chunk
+        .trim_start_matches('\n')
+        .strip_prefix("[wizard] ")?
+        .trim();
+    // `plan mode off` after an approved plan is news like `/plan`'s answer, not a warning
+    let level = match agent_core::plan_mode(rest) {
+        Some(_) => NoticeLevel::Info,
+        None => NoticeLevel::Warn,
+    };
+    Some((level, rest.to_string()))
 }
 
 #[cfg(test)]
