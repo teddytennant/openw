@@ -2290,12 +2290,15 @@ impl App {
     pub fn epilogue(&mut self, width: u16) -> String {
         let cx = self.cx(width);
         let mut lines = self.transcript_lines(&cx);
-        lines.push(ui::blank());
-        let rule = ui::rule(width, cx.th().fg(self.thinking_tok()));
-        lines.push(rule.clone());
-        lines.push(ui::blank());
-        lines.push(rule);
-        lines.extend(ui::footer::render(self, &cx));
+        // leaving for another look: the editor and footer belong to a UI that is gone
+        if !self.switched {
+            lines.push(ui::blank());
+            let rule = ui::rule(width, cx.th().fg(self.thinking_tok()));
+            lines.push(rule.clone());
+            lines.push(ui::blank());
+            lines.push(rule);
+            lines.extend(ui::footer::render(self, &cx));
+        }
         let mut out = String::new();
         for l in &lines {
             out.push_str(&ui::ansi_line(l));
