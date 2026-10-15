@@ -234,6 +234,9 @@ pub struct App {
     /// Wipe the screen and write the next frame in full.
     pub repaint: bool,
     pub quit: bool,
+    /// Quitting for a `/ui` switch: the look taking over is where the session goes on, so
+    /// no resume hint is left behind.
+    pub switched: bool,
     pub ready: bool,
     pub focused: bool,
     /// Set when a first prompt from the command line has been sent.
@@ -314,6 +317,7 @@ impl App {
             dirty: true,
             repaint: false,
             quit: false,
+            switched: false,
             ready: false,
             focused: true,
             boot_prompt_sent: false,
@@ -687,6 +691,7 @@ impl App {
             {
                 // `/ui <look>`: wizard saved it; leaving hands the terminal to that look
                 self.quit = true;
+                self.switched = true;
                 return;
             }
             Event::Notice { text, .. } => {
@@ -945,7 +950,7 @@ impl App {
     pub fn epilogue(&self, width: u16) -> String {
         let w = width as usize;
         let id = &self.tr.session_id;
-        if id.is_empty() {
+        if id.is_empty() || self.switched {
             return String::new();
         }
         let user = self

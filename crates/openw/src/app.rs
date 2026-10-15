@@ -457,6 +457,9 @@ pub struct App {
     pub msg_tx: UnboundedSender<Msg>,
     pub pending: Vec<Deferred>,
     pub quit: bool,
+    /// Quitting for a `/ui` switch: the look taking over is where the session goes on, so
+    /// no resume hint is left behind.
+    pub switched: bool,
     pub dirty: bool,
     pub backend_ready: bool,
     pub backend_dead: bool,
@@ -570,6 +573,7 @@ impl App {
             msg_tx,
             pending: Vec::new(),
             quit: false,
+            switched: false,
             dirty: true,
             backend_ready: false,
             backend_dead: false,
@@ -983,6 +987,7 @@ impl App {
             {
                 // `/ui <look>`: wizard saved it; leaving hands the terminal to that look
                 self.quit = true;
+                self.switched = true;
             }
             Event::Notice { level, text } => match level {
                 NoticeLevel::Info => {
@@ -2484,7 +2489,7 @@ impl App {
 
     /// Text printed on the normal screen after the alt screen closes.
     pub fn epilogue(&self) -> Option<String> {
-        if self.transcript.messages.is_empty() {
+        if self.transcript.messages.is_empty() || self.switched {
             return None;
         }
         let mut s = String::from("\n");

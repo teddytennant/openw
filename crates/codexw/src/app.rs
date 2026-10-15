@@ -133,6 +133,9 @@ pub struct App<W: Write> {
     /// Where a `!cmd` thread reports; `None` runs the command inline (headless tests).
     pub msg_tx: Option<UnboundedSender<Msg>>,
     pub should_exit: bool,
+    /// Quitting for a `/ui` switch: the look taking over is where the session goes on, so
+    /// no resume hint is left behind.
+    pub switched: bool,
     /// Ctrl+G was pressed; `run` opens the editor once the hint frame is on screen.
     pub editor_requested: bool,
     /// `/title`: the items of the terminal title, in order.
@@ -246,6 +249,7 @@ impl<W: Write> App<W> {
             last_input: Instant::now(),
             msg_tx: None,
             should_exit: false,
+            switched: false,
             editor_requested: false,
             title_items,
             task_progress: None,
@@ -366,6 +370,7 @@ impl<W: Write> App<W> {
             if agent_core::switched_look(text).is_some_and(|l| l != "codex") {
                 // `/ui <look>`: wizard saved it; leaving hands the terminal to that look
                 self.should_exit = true;
+                self.switched = true;
                 return;
             }
         }
@@ -1400,7 +1405,7 @@ impl<W: Write> App<W> {
 
     /// `codexw resume <id>` when wizard has a non-empty session file for the current session.
     pub fn resume_command(&self) -> Option<String> {
-        if self.session_id.is_empty() {
+        if self.session_id.is_empty() || self.switched {
             return None;
         }
         let home = self.home.as_deref()?;

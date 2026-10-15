@@ -179,6 +179,9 @@ pub struct App {
 
     pub dirty: bool,
     pub quit: bool,
+    /// Quitting for a `/ui` switch: the look taking over is where the session goes on, so
+    /// no resume hint is left behind.
+    pub switched: bool,
     pub ready: bool,
     pub boot_prompt_sent: bool,
     pub chosen_model: Option<String>,
@@ -226,6 +229,7 @@ impl App {
             cursor: None,
             dirty: true,
             quit: false,
+            switched: false,
             ready: false,
             boot_prompt_sent: false,
             chosen_model: None,
@@ -432,6 +436,7 @@ impl App {
             {
                 // `/ui <look>`: wizard saved it; leaving hands the terminal to that look
                 self.quit = true;
+                self.switched = true;
                 return;
             }
             _ => {}
@@ -715,7 +720,7 @@ impl App {
     /// What is printed after the alternate screen is left.
     pub fn epilogue(&self) -> String {
         let id = &self.tr.session_id;
-        if id.is_empty() || self.user_count() == 0 {
+        if id.is_empty() || self.user_count() == 0 || self.switched {
             return String::new();
         }
         format!(
