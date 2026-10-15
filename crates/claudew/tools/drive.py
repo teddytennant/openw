@@ -153,6 +153,8 @@ LIVE = [
     # idle: two shift+tabs (to chat) and a prompt sent in the same burst
     ('live-burst', [('fast_keys', 'BTab', 'BTab'), ('send', 'now write'), ('fast_keys', 'Enter'),
                     ('wait', 2.0), ('idle',), ('wait', 1.0), ('snap', '')]),
+    # still in chat, which has no write_file: wizard refuses the call
+    ('live-refuse', [('type', 'please refuse'), ('keys', 'Enter'), ('idle',), ('wait', 1.0), ('snap', '')]),
     # during a turn: one shift+tab (chat to plan) and a prompt queued behind it
     ('live-queue-mode', [('type', 'please slow'), ('keys', 'Enter'), ('wait', 1.5), ('fast_keys', 'BTab'),
                          ('wait', 0.3), ('type', 'please write'),
@@ -170,6 +172,53 @@ LIVE = [
                      ('keys', 'Escape'), ('wait', 0.5)]),
     ('live-search', [('keys', 'C-r'), ('wait', 1.0), ('snap', ''), ('keys', 'Escape'), ('wait', 0.5)]),
     ('live-exit', [('quit',), ('wait', 0.5), ('snap', '')]),
+]
+
+# What the user chose has to survive wizard opening the session again: plan mode and a picked
+# model, through a model switch, a rewind and a /resume. Each prompt is sent as fast as it can
+# be typed, so it races the reload.
+LIVE_CARRY = [
+    ('live-carry-model', [('type', '/plan'), ('keys', 'Enter'), ('wait', 1.5),
+                          ('type', '/model fake-other'), ('keys', 'Enter'), ('wait', 2.0),
+                          ('type', 'first write'), ('keys', 'Enter'), ('idle',), ('wait', 0.5), ('snap', '')]),
+    ('live-carry-rewind', [('fast_keys', 'Escape'), ('wait', 0.2), ('fast_keys', 'Escape'), ('wait', 1.5),
+                           ('keys', 'Up'), ('keys', 'Enter'), ('wait', 1.0), ('fast_keys', 'Enter'),
+                           ('fast_keys', 'C-u'), ('send', 'rewound write'), ('fast_keys', 'Enter'),
+                           ('wait', 3.0), ('idle',), ('wait', 1.0), ('snap', '')]),
+    ('live-carry-quit', [('quit',), ('wait', 0.5)]),
+]
+LIVE_CARRY_RESUME = [
+    ('live-carry-resume', [('wait', 1.0), ('type', '/plan'), ('keys', 'Enter'), ('wait', 1.5),
+                           ('type', '/model fake-other'), ('keys', 'Enter'), ('wait', 2.0),
+                           ('type', '/resume'), ('keys', 'Enter'), ('wait', 2.0), ('fast_keys', 'Enter'),
+                           ('send', 'resumed write'), ('fast_keys', 'Enter'),
+                           ('wait', 3.0), ('idle',), ('wait', 1.0), ('snap', '')]),
+    # /plan with text, from chat: plan mode goes on and the text runs in it; again in plan mode,
+    # it stays on
+    ('live-plan-text', [('fast_keys', 'BTab'), ('wait', 1.5), ('type', '/mode chat'), ('keys', 'Enter'),
+                        ('wait', 1.5), ('type', '/plan text write'), ('keys', 'Enter'), ('wait', 2.0), ('idle',),
+                        ('type', '/plan refine wait1'), ('keys', 'Enter'), ('wait', 2.0), ('idle',),
+                        ('wait', 1.0), ('snap', '')]),
+    ('live-config', [('type', '/config'), ('keys', 'Enter'), ('wait', 1.5), ('snap', '')]),
+    ('live-mode', [('type', '/mode'), ('keys', 'Enter'), ('wait', 1.0), ('snap', ''),
+                   ('keys', 'Escape'), ('wait', 0.5)]),
+]
+
+# A side question in flight in plan mode, closed, Esc once more, and a prompt sent while it is
+# still running: the prompt waits for it, and runs in plan mode.
+LIVE_BTW = [
+    ('live-btw', [('type', '/plan'), ('keys', 'Enter'), ('wait', 1.5),
+                  ('type', '/btw how long wait15'), ('keys', 'Enter'), ('wait', 0.5), ('fast_keys', 'Escape'),
+                  ('wait', 0.3), ('fast_keys', 'Escape'), ('wait', 0.3), ('send', 'btw write'),
+                  ('fast_keys', 'Enter'), ('wait', 1.0), ('snap', '-held'), ('wait', 22.0), ('idle',),
+                  ('wait', 1.0), ('snap', '')]),
+]
+
+# A first session that opens slowly (the model list takes 8 s): two shift+tabs and a prompt are
+# all in before wizard is ready.
+LIVE_EARLY = [
+    ('live-early', [('fast_keys', 'BTab', 'BTab'), ('send', 'early write'), ('fast_keys', 'Enter'),
+                    ('wait', 9.0), ('idle',), ('wait', 1.0), ('snap', '')]),
 ]
 
 # Another project sharing the same history file.
@@ -243,6 +292,8 @@ WIZARD = [
 GROUPS = {'mention': [s for s in STATIC if s[0] == 'mention'], 'static': STATIC, 'turn': TURN, 'light': LIGHT, 'turn2': TURN2, 'turn3': TURN3,
           'wizard': WIZARD, 'live': LIVE, 'live-other': LIVE_OTHER,
           'live-resumed': LIVE_RESUMED, 'live-fail': LIVE_FAIL, 'shared': SHARED,
+          'live-carry': LIVE_CARRY, 'live-carry-resume': LIVE_CARRY_RESUME, 'live-early': LIVE_EARLY,
+          'live-btw': LIVE_BTW,
           'shared-resume': SHARED_RESUME}
 
 

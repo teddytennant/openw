@@ -4,7 +4,9 @@
     fake_openai.py PORT PROJECT_DIR LOG
 
 The last word of the user's message picks the answer: md, long, slow, bash, git, read, edit,
-badedit, write, plan; anything else gets "ok". A tool result always gets "done".
+badedit, write, refuse, plan, waitN (answers after N seconds); anything else gets "ok". A tool
+result always gets "done". Each request is logged with the tools offered, the model and whether
+wizard was in plan mode.
 """
 import json, sys, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -58,6 +60,12 @@ class H(BaseHTTPRequestHandler):
         self.wfile.write(b)
 
     def do_GET(self):
+        # a slow model list holds wizard's first session open: `slow-get` beside the log
+        # holds the seconds
+        try:
+            time.sleep(float(shared('slow-get', '0') or 0))
+        except ValueError:
+            pass
         self.send_json({'object': 'list', 'data': [{'id': 'fake-model', 'object': 'model', 'created': 1},
                                                    {'id': 'fake-other', 'object': 'model', 'created': 0}]})
 
@@ -94,7 +102,9 @@ class H(BaseHTTPRequestHandler):
         u = users[-1].get('content', '') if users else ''
         if isinstance(u, list):
             u = ' '.join(p.get('text', '') for p in u if isinstance(p, dict))
+        plan = any('## Plan mode (active)' in str(m.get('content')) for m in msgs if m.get('role') == 'system')
         LOG.write(json.dumps({'tools': tools, 'last_role': last.get('role'), 'user': u[-200:],
+                              'plan': plan, 'model': body.get('model'),
                               'last': str(last.get('content'))[:300]}) + '\n')
         LOG.flush()
         self.send_response(200)
@@ -114,6 +124,14 @@ class H(BaseHTTPRequestHandler):
         if last.get('role') == 'tool':
             self.text(shared('badedit-reply', 'done') if key == 'badedit' else 'done')
             fin = 'stop'
+        elif key.startswith('wait') and key[4:].isdigit():
+            time.sleep(int(key[4:]))
+            self.text('waited')
+            fin = 'stop'
+        elif key == 'refuse':
+            # in chat mode wizard does not offer write_file, and refuses the call
+            self.tool('write_file', {'path': cwd() + '/refused.txt', 'content': 'x'})
+            fin = 'tool_calls'
         elif key == 'md':
             self.text(MD, 0.05)
             fin = 'stop'

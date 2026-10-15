@@ -13,6 +13,8 @@ import argparse, json, os, re, shutil, socket, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SGR = re.compile(r'\x1b\[[0-9;:]*m')
+# OSC 8 hyperlinks around file names and URLs
+OSC = re.compile(r'\x1b\]8;[^\x07\x1b]*(?:\x07|\x1b\\)')
 
 
 def free_port():
@@ -29,7 +31,7 @@ def home(path, provider):
 
 def text(path):
     with open(path, encoding='utf-8') as f:
-        return SGR.sub('', f.read())
+        return OSC.sub('', SGR.sub('', f.read()))
 
 
 def check(fails, scene, ok, what):
@@ -83,12 +85,29 @@ def main():
             for f in ('w.txt',):
                 if os.path.exists(os.path.join(a.cwd, f)):
                     os.remove(os.path.join(a.cwd, f))
+            early = os.path.join(a.work, 'live-home-early')
+            shutil.rmtree(early, ignore_errors=True)
+            home(early, 'model = "fake-model"\nactive_provider = "fake"\n\n[[providers]]\nname = "fake"\n'
+                        'kind = "openai"\nbase_url = "http://127.0.0.1:%d/v1"\nmodel = "fake-model"\n' % port)
             for group, h, cwd in (('live', good, a.cwd), ('live-other', good, other),
-                                  ('live-resumed', good, a.cwd), ('live-fail', bad, a.cwd)):
+                                  ('live-resumed', good, a.cwd), ('live-carry', good, a.cwd),
+                                  ('live-carry-resume', good, a.cwd), ('live-btw', good, a.cwd),
+                                  ('live-early', early, a.cwd),
+                                  ('live-fail', bad, a.cwd)):
+                # the slow start's model list takes 8 s; a fresh home has none cached
+                slow = os.path.join(os.path.dirname(log), 'shared-slow-get.txt')
+                if group == 'live-early':
+                    with open(slow, 'w') as f:
+                        f.write('8')
+                elif os.path.exists(slow):
+                    os.remove(slow)
                 subprocess.run([sys.executable, os.path.join(HERE, 'drive.py'), '--target', 'look',
                                 '--cwd', cwd, '--out', out, '--group', group, '--sizes', size,
                                 '--cmd', '%s HOME=%s wizard' % (env, h)], check=True,
                                stdout=subprocess.DEVNULL)
+            slow = os.path.join(os.path.dirname(log), 'shared-slow-get.txt')
+            if os.path.exists(slow):
+                os.remove(slow)
             history = os.path.join(a.work, 'live-state', 'history.jsonl')
             fails += checks(out, size, version, log, a.cwd, history)
             # the next size starts from a fresh history and fresh sessions
@@ -223,6 +242,25 @@ def requests(log, word):
             if json.loads(l).get('last_role') == 'user' and json.loads(l).get('user', '').endswith(word)]
 
 
+def request(log, text):
+    """The last request the fake model got for the prompt `text`, or None."""
+    hits = [e for e in map(json.loads, open(log))
+            if e.get('last_role') == 'user' and e.get('user', '').endswith(text)]
+    return hits[-1] if hits else None
+
+
+def ran_in_plan(fails, scene, log, text, model=None):
+    """`text` reached the model in plan mode: read tools and exit_plan, and the plan prompt."""
+    r = request(log, text)
+    check(fails, scene, r is not None, '%r reached the model' % text)
+    if r is None:
+        return
+    check(fails, scene, r['plan'] and 'exit_plan' in r['tools'] and 'read_file' in r['tools'],
+          '%r ran in plan mode (plan prompt %s, offered %s)' % (text, r['plan'], r['tools']))
+    if model:
+        check(fails, scene, r['model'] == model, '%r ran on %s, not %s' % (text, model, r['model']))
+
+
 def checks(out, size, version, log, cwd, history):
     fails = []
     p = lambda scene: os.path.join(out, '%s-%s.ansi' % (scene, size))
@@ -322,6 +360,50 @@ def checks(out, size, version, log, cwd, history):
           'the queued prompt ran in plan mode, changed before it (offered %s)' % offered)
     check(fails, tag('live-queue-mode'), not os.path.exists(os.path.join(cwd, 'w.txt')),
           'nothing was written from plan mode')
+
+    t = text(p('live-refuse')).split('please refuse')[-1]
+    check(fails, tag('live-refuse'), re.search(r'● Write\(refused\.txt\)', t),
+          'a refused write_file is drawn as Write, not Update')
+    check(fails, tag('live-refuse'), 'not available in this turn' in t and 'Error editing file' not in t,
+          'the refusal shows why, not an edit failure')
+    check(fails, tag('live-refuse'), not os.path.exists(os.path.join(cwd, 'refused.txt')),
+          'nothing was written')
+
+    # plan mode and the model picked survive a model switch, a rewind and a /resume
+    t = text(p('live-carry-model')).split('first write')[-1]
+    check(fails, tag('live-carry-model'), footer_mode(text(p('live-carry-model'))) == 'plan',
+          'the footer still says plan')
+    ran_in_plan(fails, tag('live-carry-model'), log, 'first write', 'fake-other')
+    check(fails, tag('live-carry-model'), re.search(r'● Write\(w\.txt\)', t) and 'blocked by plan mode' in t,
+          'a write plan mode blocked is drawn with its name and the reason')
+    for scene, prompt in (('live-carry-rewind', 'rewound write'), ('live-carry-resume', 'resumed write')):
+        check(fails, tag(scene), footer_mode(text(p(scene))) == 'plan', 'the footer still says plan')
+        ran_in_plan(fails, tag(scene), log, prompt, 'fake-other')
+    check(fails, tag('live-btw'), request(log, 'how long wait15') is not None,
+          'the side question reached the model')
+    check(fails, tag('live-btw'), 'esc to interrupt' not in text(p('live-btw-held')),
+          'the side question is not the user\'s turn: nothing to interrupt, so Esc cancels nothing')
+    check(fails, tag('live-btw'), footer_mode(text(p('live-btw'))) == 'plan', 'the footer still says plan')
+    ran_in_plan(fails, tag('live-btw'), log, 'btw write')
+    check(fails, tag('live-plan-text'), request(log, '/plan text write') is None,
+          '/plan with text is not handed to wizard\'s /plan, which drops the text')
+    ran_in_plan(fails, tag('live-plan-text'), log, 'text write')
+    ran_in_plan(fails, tag('live-plan-text'), log, 'refine wait1')
+    check(fails, tag('live-plan-text'), footer_mode(text(p('live-plan-text'))) == 'plan',
+          '/plan with text in plan mode leaves plan mode on')
+    check(fails, tag('live-config'), request(log, '/config') is None, '/config is not sent to the model')
+    check(fails, tag('live-config'), 'no settings panel' in text(p('live-config')),
+          '/config says where the settings are')
+    t = text(p('live-mode'))
+    check(fails, tag('live-mode'), 'Select mode' in t and re.search(r'1\.\s+genie', t),
+          '/mode opens a picker of wizard\'s modes')
+
+    check(fails, tag('live-early'), footer_mode(text(p('live-early'))) == 'chat',
+          'two shift+tabs before the session opened end in chat')
+    r = request(log, 'early write')
+    check(fails, tag('live-early'), r is not None and sorted(r['tools']) == ['web_fetch', 'web_search'],
+          'a prompt sent before the session opened ran in the mode pressed before it (offered %s)'
+          % (r and r['tools']))
 
     t = text(p('live-modes-dismissed'))
     rows = re.findall(r'^❯(.*)$', t, re.M)
