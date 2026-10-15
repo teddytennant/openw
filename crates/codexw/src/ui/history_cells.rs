@@ -790,7 +790,9 @@ impl ChatLog {
                         // Already on screen above the approval prompt.
                         self.previewed_edits.remove(i);
                         if failed {
-                            out.push(Box::new(new_patch_apply_failure("")));
+                            out.push(Box::new(new_patch_apply_failure(
+                                call.output.as_deref().unwrap_or(""),
+                            )));
                         }
                         return;
                     }
@@ -805,7 +807,9 @@ impl ChatLog {
                                 }));
                             }
                         }
-                        _ if failed => out.push(Box::new(new_patch_apply_failure(""))),
+                        _ if failed => out.push(Box::new(new_patch_apply_failure(
+                            call.output.as_deref().unwrap_or(""),
+                        ))),
                         _ => {}
                     }
                 }

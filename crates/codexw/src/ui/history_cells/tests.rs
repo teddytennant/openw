@@ -815,9 +815,13 @@ fn a_failed_edit_prints_the_failure_row() {
         ..Default::default()
     };
     let cells = log.apply(&Event::Tool(call));
+    // the reason goes under it, as codex prints a patch's stderr
     assert_eq!(
         texts(&cells, 80),
-        vec![vec!["✘ Failed to apply patch".to_string()]]
+        vec![vec![
+            "✘ Failed to apply patch".to_string(),
+            "  └ File not found".to_string()
+        ]]
     );
 }
 
@@ -1068,9 +1072,13 @@ fn a_failed_edit_without_a_diff_still_prints_the_failure_row() {
         ..Default::default()
     };
     let cells = log.apply(&Event::Tool(call));
+    // the reason goes under it, as codex prints a patch's stderr
     assert_eq!(
         texts(&cells, 80),
-        vec![vec!["✘ Failed to apply patch".to_string()]]
+        vec![vec![
+            "✘ Failed to apply patch".to_string(),
+            "  └ File not found".to_string()
+        ]]
     );
 }
 
