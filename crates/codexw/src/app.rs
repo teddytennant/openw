@@ -373,6 +373,10 @@ impl<W: Write> App<W> {
                 self.switched = true;
                 return;
             }
+            // wizard says where plan mode is: after `/plan`, and when an approved plan leaves it
+            if let Some(on) = agent_core::plan_mode(text) {
+                self.pane.footer.plan_mode = on;
+            }
         }
         match &ev {
             Event::Ready { session_id, config } => {
