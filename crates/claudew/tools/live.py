@@ -86,17 +86,27 @@ def main():
                 if os.path.exists(os.path.join(a.cwd, f)):
                     os.remove(os.path.join(a.cwd, f))
             early = os.path.join(a.work, 'live-home-early')
-            shutil.rmtree(early, ignore_errors=True)
-            home(early, 'model = "fake-model"\nactive_provider = "fake"\n\n[[providers]]\nname = "fake"\n'
+            early2 = os.path.join(a.work, 'live-home-early2')
+            for h in (early, early2):
+                shutil.rmtree(h, ignore_errors=True)
+                home(h, 'model = "fake-model"\nactive_provider = "fake"\n\n[[providers]]\nname = "fake"\n'
                         'kind = "openai"\nbase_url = "http://127.0.0.1:%d/v1"\nmodel = "fake-model"\n' % port)
+            # the user's own commands: one global, one the project's
+            for d, name, body in ((os.path.join(good, '.wizard', 'commands'), 'greet.md', 'Greeting: $ARGUMENTS'),
+                                  (os.path.join(a.cwd, '.wizard', 'commands'), 'deploy.md',
+                                   'Deploy the service to $ARGUMENTS and say done')):
+                os.makedirs(d, exist_ok=True)
+                with open(os.path.join(d, name), 'w') as f:
+                    f.write(body + '\n')
             for group, h, cwd in (('live', good, a.cwd), ('live-other', good, other),
                                   ('live-resumed', good, a.cwd), ('live-carry', good, a.cwd),
                                   ('live-carry-resume', good, a.cwd), ('live-btw', good, a.cwd),
-                                  ('live-early', early, a.cwd),
+                                  ('live-slash', good, a.cwd), ('live-early', early, a.cwd),
+                                  ('live-early-cmd', early2, a.cwd),
                                   ('live-fail', bad, a.cwd)):
                 # the slow start's model list takes 8 s; a fresh home has none cached
                 slow = os.path.join(os.path.dirname(log), 'shared-slow-get.txt')
-                if group == 'live-early':
+                if group in ('live-early', 'live-early-cmd'):
                     with open(slow, 'w') as f:
                         f.write('8')
                 elif os.path.exists(slow):
@@ -245,7 +255,7 @@ def requests(log, word):
 def request(log, text):
     """The last request the fake model got for the prompt `text`, or None."""
     hits = [e for e in map(json.loads, open(log))
-            if e.get('last_role') == 'user' and e.get('user', '').endswith(text)]
+            if e.get('last_role') == 'user' and e.get('user', '').rstrip().endswith(text)]
     return hits[-1] if hits else None
 
 
@@ -413,6 +423,30 @@ def checks(out, size, version, log, cwd, history):
           'after /clear omakase is still on: the plan is not put to a review')
     check(fails, tag('live-btw'), 'ctrl+enter to send now' not in text(p('live-btw-held')),
           'a prompt held behind a side question offers no send-now, which only cuts a turn short')
+
+    t = text(p('live-early-cmd'))
+    check(fails, tag('live-early-cmd'), 'Unknown slash command' not in t and footer_mode(t) == 'sovereign',
+          'a command typed before wizard listed its commands reached wizard and ran (%r)' % footer_mode(t))
+    t = text(p('live-login'))
+    check(fails, tag('live-login'), 'Unknown slash command' not in t and 'run it in the terminal' in t
+          and request(log, '/login xai') is None, 'a command wizard runs but does not list reaches wizard')
+    for prompt, want in (('Deploy the service to prod and say done', 'a project command'),
+                         ('Greeting: hi there', 'a global command')):
+        check(fails, tag('live-custom'), request(log, prompt) is not None,
+              '%s is expanded before it reaches the model' % want)
+    r = [e for e in map(json.loads, open(log)) if e.get('last_role') == 'user'
+         and e.get('user', '').startswith('what is in ')]
+    check(fails, tag('live-custom'), r and 'alpha' in r[-1]['user'],
+          'an @file reference is read into the prompt')
+    check(fails, tag('live-custom'), request(log, '/tmp what is here') is not None,
+          'a path is a prompt, not an unknown command')
+    check(fails, tag('live-queue-local'), request(log, 'fourth prompt') is not None,
+          'a prompt queued behind a local command is sent')
+    check(fails, tag('live-queue-local'), 'Options can only be changed' not in text(p('live-queue-local')),
+          'a queued /effort waits for the turn to end instead of being refused')
+    t = text(p('live-omakase-custom')).split('❯ /greet please plan')[-1]
+    check(fails, tag('live-omakase-custom'), 'plan mode off' not in t,
+          'the plan-off line after an approved plan is left out after a custom command too')
 
     check(fails, tag('live-early'), footer_mode(text(p('live-early'))) == 'chat',
           'two shift+tabs before the session opened end in chat')

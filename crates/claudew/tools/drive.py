@@ -231,6 +231,30 @@ LIVE_EARLY = [
                     ('wait', 9.0), ('idle',), ('wait', 1.0), ('snap', '')]),
 ]
 
+# A command typed before wizard has listed its commands is held for wizard, not refused.
+LIVE_EARLY_CMD = [
+    ('live-early-cmd', [('send', '/sovereign'), ('fast_keys', 'Enter'), ('wait', 9.0), ('idle',),
+                        ('wait', 1.0), ('snap', '')]),
+]
+
+# Commands wizard runs but does not list, the user's own commands, file references and paths,
+# a queue that has a local command in it, and the plan-off line after a custom command.
+LIVE_SLASH = [
+    ('live-login', [('type', '/login xai'), ('keys', 'Enter'), ('wait', 2.0), ('idle',), ('snap', '')]),
+    ('live-custom', [('type', '/deploy prod'), ('keys', 'Enter'), ('idle',),
+                     ('type', '/greet hi there'), ('keys', 'Enter'), ('idle',),
+                     ('type', 'what is in @notes.md'), ('keys', 'Enter'), ('idle',),
+                     ('type', '/tmp what is here'), ('keys', 'Enter'), ('idle',), ('wait', 0.5), ('snap', '')]),
+    ('live-queue-local', [('type', 'please wait3'), ('keys', 'Enter'), ('wait', 0.5),
+                          ('type', '/config'), ('fast_keys', 'Enter'), ('wait', 0.3),
+                          ('type', '/effort low'), ('fast_keys', 'Enter'), ('wait', 0.3),
+                          ('type', 'fourth prompt'), ('fast_keys', 'Enter'),
+                          ('wait', 6.0), ('idle',), ('wait', 1.0), ('snap', '')]),
+    ('live-omakase-custom', [('type', '/omakase'), ('keys', 'Enter'), ('wait', 2.0),
+                             ('type', '/greet please plan'), ('keys', 'Enter'), ('wait', 4.0), ('idle',),
+                             ('wait', 0.5), ('snap', '')]),
+]
+
 # Another project sharing the same history file.
 LIVE_OTHER = [
     ('live-other', [('type', 'say other'), ('keys', 'Enter'), ('idle',), ('quit',), ('wait', 0.5)]),
@@ -303,7 +327,7 @@ GROUPS = {'mention': [s for s in STATIC if s[0] == 'mention'], 'static': STATIC,
           'wizard': WIZARD, 'live': LIVE, 'live-other': LIVE_OTHER,
           'live-resumed': LIVE_RESUMED, 'live-fail': LIVE_FAIL, 'shared': SHARED,
           'live-carry': LIVE_CARRY, 'live-carry-resume': LIVE_CARRY_RESUME, 'live-early': LIVE_EARLY,
-          'live-btw': LIVE_BTW,
+          'live-btw': LIVE_BTW, 'live-early-cmd': LIVE_EARLY_CMD, 'live-slash': LIVE_SLASH,
           'shared-resume': SHARED_RESUME}
 
 
