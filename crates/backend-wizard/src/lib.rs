@@ -409,7 +409,7 @@ fn launch(bin: &OsString, cwd: &std::path::Path) -> anyhow::Result<Proc> {
 
 impl Backend for WizardBackend {
     fn spawn(cwd: PathBuf, resume: Option<String>) -> anyhow::Result<BackendHandle> {
-        Self::spawn_with(cwd, resume, false)
+        Self::spawn_with(cwd, resume, false, false)
     }
 }
 
@@ -417,10 +417,14 @@ impl WizardBackend {
     /// [`Backend::spawn`], with wizard's questions (a finished plan) shown to the frontend as
     /// [`Event::Permission`] when `ask` is set. Without it they are answered "allow" here, so a
     /// frontend with no prompt to show never leaves a turn waiting.
+    ///
+    /// With `answer_unknown`, wizard answers a `/name` nothing runs as unknown rather than
+    /// sending it to the model.
     pub fn spawn_with(
         cwd: PathBuf,
         resume: Option<String>,
         ask: bool,
+        answer_unknown: bool,
     ) -> anyhow::Result<BackendHandle> {
         let cwd = std::path::absolute(&cwd).unwrap_or(cwd);
         let resume =
@@ -432,7 +436,7 @@ impl WizardBackend {
         agent_core::spawn_supervised(
             "the wizard driver",
             ev_tx.clone(),
-            run(proc, bin, cwd, resume, req_rx, ev_tx, ask),
+            run(proc, bin, cwd, resume, req_rx, ev_tx, ask, answer_unknown),
         );
         Ok(BackendHandle {
             tx: req_tx,
@@ -624,6 +628,7 @@ async fn run(
     mut req_rx: UnboundedReceiver<Request>,
     ev_tx: UnboundedSender<Event>,
     ask: bool,
+    answer_unknown: bool,
 ) {
     let version = wizard_version(&bin).await;
     let grace = cancel_grace();
@@ -636,6 +641,7 @@ async fn run(
     let cwd_s = cwd.to_string_lossy().into_owned();
     let mut core = Core::new(cwd_s.clone(), resume, version.clone());
     core.set_asking(ask);
+    core.set_answer_unknown(answer_unknown);
     let graceful = loop {
         match serve(&mut p, &mut core, &mut link, &mut req_rx, grace).await {
             End::Shutdown => break true,
@@ -656,6 +662,7 @@ async fn run(
                         );
                         core = Core::new(cwd_s.clone(), session, version.clone());
                         core.set_asking(ask);
+                        core.set_answer_unknown(answer_unknown);
                     }
                     Err(e) => {
                         let _ = link.ev_tx.send(Event::Fatal(format!(

@@ -1014,7 +1014,8 @@ impl App {
             Event::Notice { text, .. }
                 if self.loading
                     && (text.starts_with("Could not load session")
-                        || text.starts_with("New session failed")) =>
+                        || text.starts_with("New session failed")
+                        || text.starts_with("Finish or cancel the running turn")) =>
             {
                 self.loading = false;
                 self.blocks.push(Block::Notice {
@@ -1604,13 +1605,22 @@ impl App {
         }
 
         if ctrl && key.code == KeyCode::Char('c') {
-            return self.ctrl_c(prev_hint);
+            self.ctrl_c(prev_hint);
+            if self.dialog.is_none() {
+                self.flush_queue();
+            }
+            return;
         }
         if self.detail {
             return self.detail_key(key);
         }
         if self.dialog.is_some() {
-            return self.dialog_key(key);
+            self.dialog_key(key);
+            // a picker a queued command opened is answered: the rest of the queue goes on
+            if self.dialog.is_none() {
+                self.flush_queue();
+            }
+            return;
         }
         match key.code {
             KeyCode::Char('d') if ctrl && self.editor.is_empty() => {
@@ -2076,7 +2086,12 @@ impl App {
     /// before it has been confirmed: a prompt queued after shift+tab runs in that mode.
     fn flush_queue(&mut self) {
         // one the look answers itself (a picker, /config) starts no turn: the next goes too
-        while self.busy.is_none() && !self.modes_pending() && !self.queued.is_empty() {
+        // nor past a picker one of them opened: the rest wait until it is answered
+        while self.busy.is_none()
+            && self.dialog.is_none()
+            && !self.modes_pending()
+            && !self.queued.is_empty()
+        {
             let next = self.queued.remove(0);
             let at = self.blocks.len();
             self.submit(next);
@@ -3131,7 +3146,7 @@ pub fn spawn_backend(
     let BackendHandle { tx, mut rx } = match &opts.backend {
         BackendKind::Mock => agent_core::mock::MockBackend::spawn(cwd, resume)?,
         BackendKind::Replay(path) => crate::replay::spawn(path)?,
-        BackendKind::Wizard => backend_wizard::WizardBackend::spawn_with(cwd, resume, true)?,
+        BackendKind::Wizard => backend_wizard::WizardBackend::spawn_with(cwd, resume, true, true)?,
     };
     let fwd = tokio::spawn(async move {
         while let Some(ev) = rx.recv().await {

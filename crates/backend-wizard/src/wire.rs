@@ -99,7 +99,7 @@ pub fn custom_commands(update: &Value) -> Vec<String> {
         .map(|a| {
             a.iter()
                 .filter(|c| c.pointer("/_meta/custom").and_then(Value::as_bool) == Some(true))
-                .map(|c| str_of(c, "name").trim_start_matches('/').to_lowercase())
+                .map(|c| str_of(c, "name").trim_start_matches('/').to_string())
                 .collect()
         })
         .unwrap_or_default()

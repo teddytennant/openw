@@ -928,3 +928,36 @@ fn a_typed_model_is_echoed_as_typed() {
     hn.app.submit(format!("/model {name}"));
     assert!(hn.render().plain().contains(&format!("/model {name}")));
 }
+
+/// A queued `/model` opens the picker; the prompt queued after it waits for the answer
+/// instead of going out on the old model behind it.
+#[test]
+fn the_queue_waits_for_a_picker_a_queued_command_opened() {
+    let mut hn = harness();
+    hn.app.submit("please wait".into());
+    hn.sent();
+    hn.event(Event::TurnStart);
+    hn.app.submit("/model".into());
+    hn.app.submit("say hi after model".into());
+    hn.event(Event::TurnEnd(StopReason::EndTurn));
+    assert!(matches!(hn.app.dialog, Some(Dialog::Model { .. })));
+    assert!(hn.sent().is_empty(), "nothing goes out behind the picker");
+    hn.press(KeyCode::Esc);
+    assert_eq!(hn.sent(), [Request::Prompt("say hi after model".into())]);
+}
+
+/// A session switch wizard refuses releases what was held for it, with the reason shown.
+#[test]
+fn a_refused_session_switch_releases_the_queue() {
+    let mut hn = harness();
+    hn.app.submit("/clear".into());
+    assert_eq!(hn.sent(), [Request::NewSession]);
+    hn.app.submit("hello again".into());
+    assert!(hn.sent().is_empty(), "held for the new session");
+    hn.event(Event::Notice {
+        level: NoticeLevel::Warn,
+        text: "Finish or cancel the running turn before switching sessions.".into(),
+    });
+    assert_eq!(hn.sent(), [Request::Prompt("hello again".into())]);
+    assert!(hn.render().plain().contains("Finish or cancel"));
+}

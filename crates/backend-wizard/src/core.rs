@@ -113,6 +113,12 @@ pub struct Core {
     tools: HashMap<String, ToolCall>,
     turn: Option<Turn>,
     probe: Option<String>,
+    /// A session switch asked for while the hidden usage probe ran: made once it ends.
+    /// `Some(None)` is a new session.
+    switch_after_probe: Option<Option<String>>,
+    /// The frontend wants a `/name` nothing runs answered as unknown (it says so to wizard in
+    /// `initialize`); such a prompt is then a command turn too.
+    answer_unknown: bool,
     /// A session was loaded and its context size has not been read yet.
     probe_after_load: bool,
     replay: Option<Replay>,
@@ -142,6 +148,8 @@ impl Core {
             tools: HashMap::new(),
             turn: None,
             probe: None,
+            switch_after_probe: None,
+            answer_unknown: false,
             probe_after_load: false,
             replay: None,
             queue: VecDeque::new(),
@@ -175,6 +183,12 @@ impl Core {
     /// with the first allow option, for frontends that have no prompt to show.
     pub fn set_asking(&mut self, ask: bool) {
         self.ask = ask;
+    }
+
+    /// Ask wizard to answer a `/name` nothing runs as unknown, instead of sending it to the
+    /// model.
+    pub fn set_answer_unknown(&mut self, on: bool) {
+        self.answer_unknown = on;
     }
 
     pub fn config(&self) -> Config {
@@ -225,6 +239,7 @@ impl Core {
                 "protocolVersion": 1,
                 "clientCapabilities": {},
                 "clientInfo": {"name": "openw", "version": env!("CARGO_PKG_VERSION")},
+                "_meta": {"wizard": {"unknownCommands": self.answer_unknown}},
             }),
             Pending::Initialize,
         );
@@ -302,13 +317,13 @@ impl Core {
                 }
             }
             Request::NewSession => {
-                if self.busy_for_switch() {
+                if self.busy_for_switch(None) {
                     return self.take();
                 }
                 self.open_new(false);
             }
             Request::LoadSession(id) => {
-                if self.busy_for_switch() {
+                if self.busy_for_switch(Some(id.clone())) {
                     return self.take();
                 }
                 self.open_load(id, false);
@@ -360,7 +375,12 @@ impl Core {
         self.take()
     }
 
-    fn busy_for_switch(&mut self) -> bool {
+    fn busy_for_switch(&mut self, target: Option<String>) -> bool {
+        // the hidden usage probe is ours, not the user's turn: the switch waits for it
+        if self.probe.is_some() && self.turn.is_none() && !self.opening() {
+            self.switch_after_probe = Some(target);
+            return true;
+        }
         if self.turn.is_some() || self.probe.is_some() || self.opening() {
             self.notice(
                 NoticeLevel::Warn,
@@ -416,26 +436,42 @@ impl Core {
         if !self.idle() {
             return;
         }
+        if let Some(target) = self.switch_after_probe.take() {
+            match target {
+                Some(id) => self.open_load(id, false),
+                None => self.open_new(false),
+            }
+            return;
+        }
         if let Some(text) = self.queue.pop_front() {
             self.start_prompt(text);
         }
     }
 
-    /// The command a prompt runs, when wizard answers it rather than the model: any `/name`
-    /// but the user's own commands (expanded and sent to the model) and paths. Wizard answers
-    /// its unlisted commands and unknown names itself too.
+    /// The command a prompt runs, when wizard answers it rather than the model. A listed
+    /// command that is not the user's own (those, and skills, are expanded and go to the
+    /// model). With unknown names answered by wizard, any other `/name` that is not a path too.
     fn command_of(&self, text: &str) -> Option<String> {
         let word = text
             .trim_start()
             .strip_prefix('/')?
             .split_whitespace()
             .next()?;
+        if self.custom.iter().any(|c| c == word) {
+            return None;
+        }
+        if let Some(c) = self
+            .commands
+            .iter()
+            .find(|c| c.name.eq_ignore_ascii_case(word))
+        {
+            return Some(c.name.to_lowercase());
+        }
         let plain = word
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ':'));
         let path = std::path::Path::new("/").join(word).exists();
-        let name = word.to_lowercase();
-        (plain && !path && !self.custom.contains(&name)).then_some(name)
+        (self.answer_unknown && plain && !path).then(|| word.to_lowercase())
     }
 
     fn start_prompt(&mut self, text: String) {
