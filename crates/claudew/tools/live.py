@@ -427,7 +427,7 @@ def checks(out, size, version, log, cwd, history):
     t = text(p('live-early-cmd'))
     check(fails, tag('live-early-cmd'), 'Unknown slash command' not in t and footer_mode(t) == 'sovereign',
           'a command typed before wizard listed its commands reached wizard and ran (%r)' % footer_mode(t))
-    t = text(p('live-login'))
+    t = re.sub(r'\s+', ' ', text(p('live-login')))
     check(fails, tag('live-login'), 'Unknown slash command' not in t and 'run it in the terminal' in t
           and request(log, '/login xai') is None, 'a command wizard runs but does not list reaches wizard')
     for prompt, want in (('Deploy the service to prod and say done', 'a project command'),
