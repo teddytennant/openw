@@ -467,9 +467,9 @@ pub fn wizard_notice(chunk: &str) -> Option<(NoticeLevel, String)> {
         .strip_prefix("[wizard] ")?
         .trim();
     // `plan mode off` after an approved plan is news like `/plan`'s answer, not a warning
-    let level = match agent_core::plan_mode(rest) {
-        Some(_) => NoticeLevel::Info,
-        None => NoticeLevel::Warn,
+    let level = match rest {
+        "plan mode off" => NoticeLevel::Info,
+        _ => NoticeLevel::Warn,
     };
     Some((level, rest.to_string()))
 }
