@@ -250,6 +250,20 @@ LIVE_SLASH = [
                           ('type', '/effort low'), ('fast_keys', 'Enter'), ('wait', 0.3),
                           ('type', 'fourth prompt'), ('fast_keys', 'Enter'),
                           ('wait', 6.0), ('idle',), ('wait', 1.0), ('snap', '')]),
+    # a skill typed as a command goes to the model
+    ('live-skill', [('type', '/frontend-design make a landing page'), ('keys', 'Enter'), ('idle',),
+                    ('wait', 0.5), ('snap', '')]),
+    # /clear queued behind a turn: the session switch may meet wizard's own usage probe
+    ('live-queue-clear', [('type', 'please wait2'), ('keys', 'Enter'), ('wait', 0.5),
+                          ('type', '/clear'), ('fast_keys', 'Enter'), ('wait', 0.3),
+                          ('type', 'hello again'), ('fast_keys', 'Enter'),
+                          ('wait', 5.0), ('idle',), ('wait', 1.0), ('snap', '')]),
+    # /model queued behind a turn opens the picker; the prompt after it waits for the pick
+    ('live-queue-picker', [('type', 'please wait2'), ('keys', 'Enter'), ('wait', 0.5),
+                           ('type', '/model'), ('fast_keys', 'Enter'), ('wait', 0.3),
+                           ('type', 'say hi after model'), ('fast_keys', 'Enter'),
+                           ('wait', 4.0), ('snap', '-open'), ('keys', 'Down'), ('keys', 'Enter'),
+                           ('wait', 3.0), ('idle',), ('wait', 1.0), ('snap', '')]),
     ('live-omakase-custom', [('type', '/omakase'), ('keys', 'Enter'), ('wait', 2.0),
                              ('type', '/greet please plan'), ('keys', 'Enter'), ('wait', 4.0), ('idle',),
                              ('wait', 0.5), ('snap', '')]),

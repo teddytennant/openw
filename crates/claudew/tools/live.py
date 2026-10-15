@@ -91,6 +91,10 @@ def main():
                 shutil.rmtree(h, ignore_errors=True)
                 home(h, 'model = "fake-model"\nactive_provider = "fake"\n\n[[providers]]\nname = "fake"\n'
                         'kind = "openai"\nbase_url = "http://127.0.0.1:%d/v1"\nmodel = "fake-model"\n' % port)
+            skill = os.path.join(good, '.wizard', 'skills', 'frontend-design')
+            os.makedirs(skill, exist_ok=True)
+            with open(os.path.join(skill, 'SKILL.md'), 'w') as f:
+                f.write('---\nname: frontend-design\ndescription: Build web pages\n---\nMake it look good.\n')
             # the user's own commands: one global, one the project's
             for d, name, body in ((os.path.join(good, '.wizard', 'commands'), 'greet.md', 'Greeting: $ARGUMENTS'),
                                   (os.path.join(a.cwd, '.wizard', 'commands'), 'deploy.md',
@@ -444,6 +448,16 @@ def checks(out, size, version, log, cwd, history):
           'a prompt queued behind a local command is sent')
     check(fails, tag('live-queue-local'), 'Options can only be changed' not in text(p('live-queue-local')),
           'a queued /effort waits for the turn to end instead of being refused')
+    t = text(p('live-skill'))
+    check(fails, tag('live-skill'), 'Unknown slash command' not in t
+          and request(log, 'make a landing page') is not None, 'a skill typed as a command reaches the model')
+    check(fails, tag('live-queue-clear'), request(log, 'hello again') is not None,
+          'a prompt queued behind /clear is sent in the new session')
+    t = text(p('live-queue-picker-open'))
+    check(fails, tag('live-queue-picker'), 'Select model' in t, 'the queued /model opens its picker')
+    r = request(log, 'say hi after model')
+    check(fails, tag('live-queue-picker'), r is not None and r['model'] == 'fake-other',
+          'the prompt queued after /model waits for the pick and runs on it (%s)' % (r and r['model']))
     t = text(p('live-omakase-custom')).split('❯ /greet please plan')[-1]
     check(fails, tag('live-omakase-custom'), 'plan mode off' not in t,
           'the plan-off line after an approved plan is left out after a custom command too')
