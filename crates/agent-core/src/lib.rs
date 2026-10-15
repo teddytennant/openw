@@ -232,6 +232,21 @@ pub fn switched_look(text: &str) -> Option<&str> {
     (!name.is_empty()).then_some(name)
 }
 
+/// What puts wizard back in the plan state the look `/ui` left was in: `/omakase` or `/plan`,
+/// from the `WIZARD_HANDOFF` wizard starts this look with. `None` when it was not planning.
+pub fn handed_plan() -> Option<&'static str> {
+    let handoff: serde_json::Value =
+        serde_json::from_str(&std::env::var("WIZARD_HANDOFF").ok()?).ok()?;
+    let on = |key: &str| handoff.get(key).and_then(serde_json::Value::as_bool) == Some(true);
+    if on("omakase") {
+        Some("/omakase")
+    } else if on("plan") {
+        Some("/plan")
+    } else {
+        None
+    }
+}
+
 /// Whether wizard is in plan mode after a `/plan` or `/omakase` notice, if `text` is one. Leaving
 /// omakase goes back to plan mode, not out of it.
 pub fn plan_mode(text: &str) -> Option<bool> {

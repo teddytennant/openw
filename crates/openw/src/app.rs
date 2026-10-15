@@ -460,6 +460,8 @@ pub struct App {
     /// Quitting for a `/ui` switch: the look taking over is where the session goes on, so
     /// no resume hint is left behind.
     pub switched: bool,
+    /// `/plan` or `/omakase` to send on the first session: the look `/ui` left was planning.
+    handed_plan: Option<&'static str>,
     pub dirty: bool,
     pub backend_ready: bool,
     pub backend_dead: bool,
@@ -574,6 +576,7 @@ impl App {
             pending: Vec::new(),
             quit: false,
             switched: false,
+            handed_plan: agent_core::handed_plan(),
             dirty: true,
             backend_ready: false,
             backend_dead: false,
@@ -922,6 +925,11 @@ impl App {
                     self.send(Request::SetModel(m));
                 } else {
                     self.restore_model();
+                }
+                if let Some(cmd) = self.handed_plan.take() {
+                    self.agent = AgentKind::Plan;
+                    self.silent_notices += 1;
+                    self.send(Request::Prompt(cmd.into()));
                 }
                 if let Some(p) = self.initial_prompt.take() {
                     self.prompt.set_text(&p);

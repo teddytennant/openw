@@ -136,6 +136,8 @@ pub struct App<W: Write> {
     /// Quitting for a `/ui` switch: the look taking over is where the session goes on, so
     /// no resume hint is left behind.
     pub switched: bool,
+    /// `/plan` or `/omakase` to send on the first session: the look `/ui` left was planning.
+    handed_plan: Option<&'static str>,
     /// Ctrl+G was pressed; `run` opens the editor once the hint frame is on screen.
     pub editor_requested: bool,
     /// `/title`: the items of the terminal title, in order.
@@ -250,6 +252,7 @@ impl<W: Write> App<W> {
             msg_tx: None,
             should_exit: false,
             switched: false,
+            handed_plan: agent_core::handed_plan(),
             editor_requested: false,
             title_items,
             task_progress: None,
@@ -487,6 +490,10 @@ impl<W: Write> App<W> {
                 self.config.model = m.clone();
                 let _ = self.tx.send(Request::SetModel(m));
             }
+        }
+        if let Some(cmd) = self.handed_plan.take() {
+            self.pane.footer.plan_mode = true;
+            let _ = self.tx.send(Request::Prompt(cmd.into()));
         }
         self.sync_footer();
         // The session list decides whether this session is the one the user gets.

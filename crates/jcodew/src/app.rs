@@ -182,6 +182,8 @@ pub struct App {
     /// Quitting for a `/ui` switch: the look taking over is where the session goes on, so
     /// no resume hint is left behind.
     pub switched: bool,
+    /// `/plan` or `/omakase` to send on the first session: the look `/ui` left was planning.
+    handed_plan: Option<&'static str>,
     pub ready: bool,
     pub boot_prompt_sent: bool,
     pub chosen_model: Option<String>,
@@ -230,6 +232,7 @@ impl App {
             dirty: true,
             quit: false,
             switched: false,
+            handed_plan: agent_core::handed_plan(),
             ready: false,
             boot_prompt_sent: false,
             chosen_model: None,
@@ -360,6 +363,9 @@ impl App {
                 self.ready = true;
                 self.config = config.clone();
                 self.tr.apply(&ev);
+                if let Some(cmd) = self.handed_plan.take() {
+                    self.send(Request::Prompt(cmd.into()));
+                }
                 if first {
                     self.boot();
                 } else {

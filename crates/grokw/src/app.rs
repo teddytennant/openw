@@ -725,8 +725,10 @@ impl App {
             self.chosen_effort = Some(e.clone());
             self.send(Request::SetEffort(e));
         }
-        if self.opts.plan {
-            self.send(Request::Prompt("/plan".into()));
+        // plan mode (or omakase) also comes over from the look `/ui` left
+        let handed = agent_core::handed_plan();
+        if self.opts.plan || handed.is_some() {
+            self.send(Request::Prompt(handed.unwrap_or("/plan").into()));
             self.mode = Mode::Plan;
         }
         if self.opts.continue_latest {

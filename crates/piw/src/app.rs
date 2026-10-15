@@ -381,6 +381,8 @@ pub struct App {
     /// Quitting for a `/ui` switch: the look taking over is where the session goes on, so
     /// no resume hint is left behind.
     pub switched: bool,
+    /// `/plan` or `/omakase` to send on the first session: the look `/ui` left was planning.
+    handed_plan: Option<&'static str>,
     pub dirty: bool,
     pub backend_ready: bool,
     pub backend_dead: bool,
@@ -476,6 +478,7 @@ impl App {
             pending: Vec::new(),
             quit: false,
             switched: false,
+            handed_plan: agent_core::handed_plan(),
             dirty: true,
             backend_ready: false,
             backend_dead: false,
@@ -897,6 +900,9 @@ impl App {
                     self.default_effort = Some(config.effort.clone());
                 }
                 self.config = config.clone();
+                if let Some(cmd) = self.handed_plan.take() {
+                    self.send(Request::Prompt(cmd.into()));
+                }
                 // wizard confirms `/new` with `Ready` alone; it sends no `History` for an empty
                 // session, so the conversation on screen is cleared here
                 if self.after_history == Some(After::NewSession) {
