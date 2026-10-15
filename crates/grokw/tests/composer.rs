@@ -120,10 +120,26 @@ fn image_chip_sends_the_path() {
     h.app.on_paste(&png.display().to_string());
     assert_eq!(h.app.ed.text(), "what is in [Image #1] ");
     h.dump("image-chip-120x36");
-    assert_snapshot(
-        "image-chip-120x36",
-        &h.text().replace(&dir.display().to_string(), "/tmp/IMG"),
-    );
+    // the temp path's length varies (TMPDIR, the pid's digits): it is swapped for a fixed one
+    // and the row padded back, so the panel's right edge stays where it was drawn
+    let real = dir.display().to_string();
+    let shown: Vec<String> = h
+        .text()
+        .lines()
+        .map(|l| match l.rfind('│') {
+            Some(edge) if l.contains(&real) => {
+                let pad = real.chars().count().saturating_sub("/tmp/IMG".len());
+                format!(
+                    "{}{}{}",
+                    l[..edge].replace(&real, "/tmp/IMG"),
+                    " ".repeat(pad),
+                    &l[edge..]
+                )
+            }
+            _ => l.to_string(),
+        })
+        .collect();
+    assert_snapshot("image-chip-120x36", &shown.join("\n"));
     h.press(KeyCode::Enter);
     let sent = h.sent();
     let text = sent
