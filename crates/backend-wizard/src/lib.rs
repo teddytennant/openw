@@ -436,7 +436,7 @@ impl WizardBackend {
         agent_core::spawn_supervised(
             "the wizard driver",
             ev_tx.clone(),
-            run(proc, bin, cwd, resume, req_rx, ev_tx, ask, answer_unknown),
+            run(proc, bin, cwd, resume, req_rx, ev_tx, (ask, answer_unknown)),
         );
         Ok(BackendHandle {
             tx: req_tx,
@@ -627,8 +627,7 @@ async fn run(
     resume: Option<String>,
     mut req_rx: UnboundedReceiver<Request>,
     ev_tx: UnboundedSender<Event>,
-    ask: bool,
-    answer_unknown: bool,
+    (ask, answer_unknown): (bool, bool),
 ) {
     let version = wizard_version(&bin).await;
     let grace = cancel_grace();
