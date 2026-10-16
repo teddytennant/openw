@@ -2575,7 +2575,10 @@ impl App {
             self.blocks.clear();
             self.from_queue.clear();
             self.load(Some(self.session_id.clone()));
-            self.editor.set_text(&text);
+            // the rewound prompt comes back to the input, unless something is typed there now
+            if self.editor.is_empty() {
+                self.editor.set_text(&text);
+            }
         } else {
             let why = if answer.is_empty() {
                 "wizard did not answer".to_string()
